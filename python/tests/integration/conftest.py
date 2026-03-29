@@ -96,8 +96,8 @@ def agent_clients(raiju_url, admin_client):
     uid = uuid.uuid4().hex[:8]
     agents = []
 
-    for i, model in enumerate(["claude", "gpt"]):
-        # Create operator for each agent (different model families)
+    for i in range(2):
+        # Create two independent agents for multi-agent tests
         tmp = RaijuClient(api_key="", base_url=raiju_url)
         resp = tmp.register_operator(
             display_name=f"test-agent-op-{uid}-{i}",
