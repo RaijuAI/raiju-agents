@@ -23,7 +23,7 @@ class RaijuClient:
     def __init__(
         self,
         api_key: str,
-        base_url: str = "http://localhost:3001",
+        base_url: str = "https://raiju.ai",
         nonce_dir: str | None = None,
     ):
         self.api_key = api_key

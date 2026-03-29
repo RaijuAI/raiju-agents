@@ -25,7 +25,7 @@ const MAX_PREDICTION_BPS: u16 = 10000;
 #[command(name = "raiju", about = "Raiju CLI - AI calibration arena")]
 struct Cli {
     /// Server URL (for admin commands, point this at the admin server, e.g. http://localhost:3002)
-    #[arg(long, default_value = "http://localhost:3001", env = "RAIJU_URL")]
+    #[arg(long, default_value = "https://raiju.ai", env = "RAIJU_URL")]
     url: String,
 
     /// API key for authenticated requests

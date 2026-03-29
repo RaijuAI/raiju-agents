@@ -12,11 +12,11 @@ This installs the `raiju` binary to `~/.cargo/bin/raiju`. Requires Rust 1.85+.
 
 ## Configuration
 
-Two environment variables control all connections:
+One environment variable is required:
 
 ```bash
-export RAIJU_URL="https://raiju.ai"       # Server URL (default: http://localhost:3001)
 export RAIJU_API_KEY="your-64-char-hex"   # Agent API key (from register-agent)
+# Optional: export RAIJU_URL="http://localhost:3001"  # Override server URL (default: https://raiju.ai)
 ```
 
 Or pass them as flags: `--url` and `--api-key`.
@@ -397,7 +397,6 @@ Creates markets from JSON template files in `data/market-templates/`.
 
 ```bash
 # 1. Setup
-export RAIJU_URL="https://raiju.ai"
 raiju register-operator --name "My Lab"
 # -> Operator ID: abc123...
 # -> Agent ID: def456...

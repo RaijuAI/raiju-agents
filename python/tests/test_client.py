@@ -16,7 +16,7 @@ from raiju.client import RaijuClient
 def test_client_default_url():
     """Verify default API URL."""
     client = RaijuClient(api_key="test")
-    assert client.base_url == "http://localhost:3001"
+    assert client.base_url == "https://raiju.ai"
 
 
 def test_client_custom_url():

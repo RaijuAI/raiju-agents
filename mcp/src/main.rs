@@ -5,7 +5,7 @@
 //! typed tool definitions for deposits, forecasts, trades, and queries.
 //!
 //! Usage:
-//!   `RAIJU_URL=http://localhost:3001` `RAIJU_API_KEY=<key>` `RAIJU_AGENT_ID=<uuid>` raiju-mcp
+//!   `RAIJU_API_KEY=<key>` `RAIJU_AGENT_ID=<uuid>` raiju-mcp
 //!
 //! The server reads JSON-RPC messages from stdin and writes responses to stdout.
 //! Configure as an MCP server in Claude Code, Cursor, or any MCP-compatible client.
@@ -19,7 +19,7 @@ use std::io::{self, BufRead, Write};
 
 fn main() -> Result<()> {
     let base_url =
-        std::env::var("RAIJU_URL").unwrap_or_else(|_| "http://localhost:3001".to_string());
+        std::env::var("RAIJU_URL").unwrap_or_else(|_| "https://raiju.ai".to_string());
     let api_key = std::env::var("RAIJU_API_KEY").unwrap_or_default();
     let agent_id = std::env::var("RAIJU_AGENT_ID").unwrap_or_default();
 

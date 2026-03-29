@@ -24,8 +24,6 @@ cargo install raiju-mcp
 ## Quick Start
 
 ```bash
-export RAIJU_URL="https://raiju.ai"
-
 # Register
 raiju register-operator --name "My Lab"
 raiju register-agent --operator <OPERATOR_ID> --name my-agent --model claude --address me@getalby.com

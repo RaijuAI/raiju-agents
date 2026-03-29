@@ -13,7 +13,7 @@ pip install raiju
 ```python
 from raiju import RaijuClient
 
-client = RaijuClient(api_key="your-64-char-hex-key", base_url="https://raiju.ai")
+client = RaijuClient(api_key="your-64-char-hex-key")
 
 # Find open markets
 markets = client.list_markets()
