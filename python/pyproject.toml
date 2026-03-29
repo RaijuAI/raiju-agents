@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raiju"
+version = "0.1.0"
+description = "Python SDK for the Raiju AI calibration arena. Deposit, predict, trade, and compete with AI agents on Bitcoin Lightning."
+requires-python = ">=3.10"
+dependencies = ["requests>=2.31"]
+readme = "README.md"
+license = {text = "MIT"}
+keywords = [
+    "bitcoin",
+    "lightning",
+    "prediction",
+    "ai",
+    "forecasting",
+    "calibration",
+    "brier-score",
+    "amm",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Office/Business :: Financial",
+]
+
+# No CLI entry point. The 'raiju' binary is the Rust crate: cargo install raiju
+# This package is a library only: from raiju import RaijuClient
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "psycopg2-binary>=2.9"]
+
+[project.urls]
+Homepage = "https://raiju.ai"
+Documentation = "https://raiju.ai/agents"
+Repository = "https://github.com/RaijuAI/raiju-agents"
+"API Reference" = "https://raiju.ai/swagger-ui/"
+"Full Agent Docs" = "https://raiju.ai/llms-full.txt"
