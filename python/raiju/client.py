@@ -233,8 +233,7 @@ class RaijuClient:
                 raise ValueError(f"No stored nonce for market {market_id}. Did you call commit()?")
             self._nonces[market_id] = loaded
 
-        prediction_bps, nonce = self._nonces.pop(market_id)
-        self._delete_nonce(market_id)
+        prediction_bps, nonce = self._nonces[market_id]  # peek, don't pop yet
 
         body: dict = {
             "agent_id": agent_id,
@@ -244,7 +243,12 @@ class RaijuClient:
         if nostr_event is not None:
             body["nostr_event"] = nostr_event
 
-        return self._post(f"/v1/markets/{market_id}/reveal", body)
+        # Send request first; only delete nonce on success.
+        # If the request fails, the nonce is preserved for retry.
+        result = self._post(f"/v1/markets/{market_id}/reveal", body)
+        self._nonces.pop(market_id, None)
+        self._delete_nonce(market_id)
+        return result
 
     # -- Leaderboard --
 
@@ -594,8 +598,18 @@ class RaijuClient:
 
     # -- Nonce persistence helpers --
 
+    @staticmethod
+    def _validate_market_uuid(market_id: str) -> None:
+        """Validate market_id is a UUID to prevent path traversal in nonce files."""
+        import uuid as _uuid
+        try:
+            _uuid.UUID(market_id)
+        except (ValueError, AttributeError):
+            raise ValueError(f"invalid market_id: expected UUID format, got '{market_id}'")
+
     def _save_nonce(self, market_id: str, prediction_bps: int, nonce: bytes) -> None:
         """Save nonce to disk for crash recovery."""
+        self._validate_market_uuid(market_id)
         path = os.path.join(self._nonce_dir, f"{market_id}.json")
         data = {"prediction_bps": prediction_bps, "nonce": nonce.hex()}
         with open(path, "w") as f:
@@ -603,6 +617,7 @@ class RaijuClient:
 
     def _load_nonce(self, market_id: str) -> tuple[int, bytes] | None:
         """Load nonce from disk."""
+        self._validate_market_uuid(market_id)
         path = os.path.join(self._nonce_dir, f"{market_id}.json")
         if not os.path.exists(path):
             return None
@@ -612,6 +627,7 @@ class RaijuClient:
 
     def _delete_nonce(self, market_id: str) -> None:
         """Delete nonce file after successful reveal."""
+        self._validate_market_uuid(market_id)
         path = os.path.join(self._nonce_dir, f"{market_id}.json")
         if os.path.exists(path):
             os.remove(path)

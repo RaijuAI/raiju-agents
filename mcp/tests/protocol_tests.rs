@@ -61,9 +61,11 @@ fn send_multi_and_parse(input: &str) -> Vec<serde_json::Value> {
     stdout
         .lines()
         .filter(|l| !l.trim().is_empty())
-        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| {
-            panic!("failed to parse line: {e}\nline: {l}");
-        }))
+        .map(|l| {
+            serde_json::from_str(l).unwrap_or_else(|e| {
+                panic!("failed to parse line: {e}\nline: {l}");
+            })
+        })
         .collect()
 }
 
@@ -80,10 +82,7 @@ fn initialize_returns_server_info() {
     assert!(resp["error"].is_null(), "should not have error");
     assert_eq!(resp["result"]["serverInfo"]["name"], "raiju-mcp");
     assert_eq!(resp["result"]["protocolVersion"], "2024-11-05");
-    assert!(
-        resp["result"]["capabilities"]["tools"].is_object(),
-        "should declare tools capability"
-    );
+    assert!(resp["result"]["capabilities"]["tools"].is_object(), "should declare tools capability");
 }
 
 #[test]
@@ -380,10 +379,8 @@ fn multiple_requests_produce_ordered_responses() {
 #[test]
 fn parse_error_does_not_kill_the_server() {
     // A parse error on one line should not prevent processing the next line
-    let input = concat!(
-        "bad json here\n",
-        "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":77}\n"
-    );
+    let input =
+        concat!("bad json here\n", "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":77}\n");
     let responses = send_multi_and_parse(input);
 
     assert_eq!(responses.len(), 2);

@@ -222,7 +222,8 @@ impl RaijuClient {
                 }
             }
             "raiju_achievements" => {
-                let agent_id = args.get("agent_id").and_then(|v| v.as_str()).unwrap_or(&self.agent_id);
+                let agent_id =
+                    args.get("agent_id").and_then(|v| v.as_str()).unwrap_or(&self.agent_id);
                 self.get(&format!("/v1/agents/{agent_id}/achievements"))
             }
             "raiju_my_status" => self.get(&format!("/v1/agents/{}/status", self.agent_id)),
@@ -756,13 +757,10 @@ mod tests {
             let tool = tools.iter().find(|t| t["name"] == *tool_name).unwrap_or_else(|| {
                 panic!("tool {tool_name} not found");
             });
-            let required = tool["inputSchema"]["required"]
-                .as_array()
-                .unwrap_or_else(|| {
-                    panic!("{tool_name} should have 'required' array in schema");
-                });
-            let required_strs: Vec<&str> =
-                required.iter().filter_map(|v| v.as_str()).collect();
+            let required = tool["inputSchema"]["required"].as_array().unwrap_or_else(|| {
+                panic!("{tool_name} should have 'required' array in schema");
+            });
+            let required_strs: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
             for field in required_fields {
                 assert!(
                     required_strs.contains(field),
@@ -776,7 +774,14 @@ mod tests {
     #[test]
     fn tool_definitions_no_arg_tools_have_empty_properties() {
         let tools = super::tool_definitions();
-        let no_arg_tools = ["raiju_health", "raiju_node_info", "raiju_my_status", "raiju_my_positions", "raiju_my_payouts", "raiju_nostr_unbind"];
+        let no_arg_tools = [
+            "raiju_health",
+            "raiju_node_info",
+            "raiju_my_status",
+            "raiju_my_positions",
+            "raiju_my_payouts",
+            "raiju_nostr_unbind",
+        ];
         for name in &no_arg_tools {
             let tool = tools.iter().find(|t| t["name"] == *name).unwrap_or_else(|| {
                 panic!("tool {name} not found");
@@ -829,10 +834,7 @@ mod tests {
         let result = client.call_tool("nonexistent_tool", &args);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Unknown tool"),
-            "error should mention 'Unknown tool', got: {err}"
-        );
+        assert!(err.contains("Unknown tool"), "error should mention 'Unknown tool', got: {err}");
     }
 
     /// Empty string tool name returns an error.
@@ -893,10 +895,7 @@ mod tests {
         let result = client.call_tool("raiju_commit", &args);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("0-10000"),
-            "should mention valid range, got: {err}"
-        );
+        assert!(err.contains("0-10000"), "should mention valid range, got: {err}");
     }
 
     /// raiju_commit with prediction_bps as negative number returns error.
@@ -926,10 +925,7 @@ mod tests {
         let result = client.call_tool("raiju_commit", &args);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("u16"),
-            "should mention u16 constraint, got: {err}"
-        );
+        assert!(err.contains("u16"), "should mention u16 constraint, got: {err}");
     }
 
     /// raiju_trade with missing direction returns error.
@@ -1127,10 +1123,7 @@ mod tests {
         let xonly = secp256k1::XOnlyPublicKey::from_slice(&pubkey_bytes).unwrap();
 
         let secp = secp256k1::Secp256k1::verification_only();
-        assert!(
-            secp.verify_schnorr(&sig, &msg, &xonly).is_ok(),
-            "Schnorr signature should verify"
-        );
+        assert!(secp.verify_schnorr(&sig, &msg, &xonly).is_ok(), "Schnorr signature should verify");
     }
 
     // -------------------------------------------------------

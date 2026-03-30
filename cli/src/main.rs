@@ -530,12 +530,7 @@ fn main() -> Result<()> {
                 Some(p) => format!("{}/v1/leaderboard?period={p}", ctx.base),
                 None => format!("{}/v1/leaderboard", ctx.base),
             };
-            let resp: Vec<serde_json::Value> = ctx
-                .client
-                .get(url)
-                .send()?
-                .api_error()?
-                .json()?;
+            let resp: Vec<serde_json::Value> = ctx.client.get(url).send()?.api_error()?.json()?;
             if let Some(p) = &period {
                 println!("Period: {p}");
             }
@@ -735,6 +730,28 @@ fn build_nostr_prediction_event(
     }))
 }
 
+/// Validate that a market_id is a valid UUID to prevent path traversal in nonce files.
+fn validate_market_uuid(market_id: &str) -> Result<()> {
+    if market_id.len() != 36 {
+        anyhow::bail!("invalid market_id: expected UUID format");
+    }
+    for (i, c) in market_id.chars().enumerate() {
+        match i {
+            8 | 13 | 18 | 23 => {
+                if c != '-' {
+                    anyhow::bail!("invalid market_id: expected '-' at position {i}");
+                }
+            }
+            _ => {
+                if !c.is_ascii_hexdigit() {
+                    anyhow::bail!("invalid market_id: non-hex character at position {i}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn cmd_commit(
     ctx: &Ctx,
     market: &str,
@@ -742,6 +759,7 @@ fn cmd_commit(
     prediction: u16,
     nostr_sign: Option<&str>,
 ) -> Result<()> {
+    validate_market_uuid(market)?;
     if prediction > MAX_PREDICTION_BPS {
         anyhow::bail!("prediction must be 0-{MAX_PREDICTION_BPS} basis points");
     }
@@ -791,6 +809,7 @@ fn cmd_commit(
 }
 
 fn cmd_reveal(ctx: &Ctx, market: &str, agent: &str, nostr_sign: Option<&str>) -> Result<()> {
+    validate_market_uuid(market)?;
     let nonce_file = nonce_dir()?.join(format!("{market}.json"));
     let data: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&nonce_file)

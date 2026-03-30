@@ -18,8 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, Write};
 
 fn main() -> Result<()> {
-    let base_url =
-        std::env::var("RAIJU_URL").unwrap_or_else(|_| "https://raiju.ai".to_string());
+    let base_url = std::env::var("RAIJU_URL").unwrap_or_else(|_| "https://raiju.ai".to_string());
     let api_key = std::env::var("RAIJU_API_KEY").unwrap_or_default();
     let agent_id = std::env::var("RAIJU_AGENT_ID").unwrap_or_default();
 
