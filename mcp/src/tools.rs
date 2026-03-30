@@ -62,6 +62,16 @@ impl RaijuClient {
         self.send(self.http.delete(format!("{}{path}", self.base_url)))
     }
 
+    fn load_nostr_secret_key(&self, required: bool) -> Result<Option<String>> {
+        match std::env::var("RAIJU_NOSTR_SECRET_KEY") {
+            Ok(value) if !value.trim().is_empty() => Ok(Some(value.trim().to_string())),
+            _ if required => {
+                anyhow::bail!("Set RAIJU_NOSTR_SECRET_KEY in the MCP host environment")
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Build a kind 30150 Nostr event for portable prediction proofs (ADR-028 Phase 2B).
     #[allow(clippy::unused_self, clippy::needless_pass_by_value)]
     fn build_prediction_event(
@@ -157,8 +167,9 @@ impl RaijuClient {
                     "commitment_hash": hash,
                 });
 
-                // Optional: sign as Nostr event (kind 30150) for portable proof
-                if let Some(nsec) = args.get("nostr_secret_key").and_then(|v| v.as_str()) {
+                // Optional: sign as Nostr event (kind 30150) for portable proof.
+                // The secret key stays in the MCP host environment, not tool args.
+                if let Some(nsec) = self.load_nostr_secret_key(false)?.as_deref() {
                     let tags = serde_json::json!([
                         ["d", format!("raiju:commit:{market_id}")],
                         ["market_id", market_id],
@@ -179,8 +190,9 @@ impl RaijuClient {
                     "nonce": stored.nonce,
                 });
 
-                // Optional: sign as Nostr event (kind 30150) for portable proof
-                if let Some(nsec) = args.get("nostr_secret_key").and_then(|v| v.as_str()) {
+                // Optional: sign as Nostr event (kind 30150) for portable proof.
+                // The secret key stays in the MCP host environment, not tool args.
+                if let Some(nsec) = self.load_nostr_secret_key(false)?.as_deref() {
                     let tags = serde_json::json!([
                         ["d", format!("raiju:reveal:{market_id}")],
                         ["market_id", market_id],
@@ -264,14 +276,16 @@ impl RaijuClient {
             }
             // ADR-028: Nostr identity binding (challenge + sign + bind in one step)
             "raiju_nostr_bind" => {
-                let secret_key_hex =
-                    args["nostr_secret_key"].as_str().context("nostr_secret_key required")?;
+                let secret_key_hex = self
+                    .load_nostr_secret_key(true)?
+                    .context("Set RAIJU_NOSTR_SECRET_KEY in the MCP host environment")?;
 
                 // Parse the secret key and derive the x-only public key
-                let sk_bytes =
-                    hex::decode(secret_key_hex).context("nostr_secret_key must be valid hex")?;
-                let sk = secp256k1::SecretKey::from_slice(&sk_bytes)
-                    .context("nostr_secret_key must be a valid 32-byte secp256k1 secret key")?;
+                let sk_bytes = hex::decode(&secret_key_hex)
+                    .context("RAIJU_NOSTR_SECRET_KEY must be valid hex")?;
+                let sk = secp256k1::SecretKey::from_slice(&sk_bytes).context(
+                    "RAIJU_NOSTR_SECRET_KEY must be a valid 32-byte secp256k1 secret key",
+                )?;
                 let secp = secp256k1::Secp256k1::new();
                 let (xonly, _parity) = sk.public_key(&secp).x_only_public_key();
                 let pubkey_hex = hex::encode(xonly.serialize());
@@ -355,25 +369,23 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "raiju_commit",
-            "Submit a sealed forecast for a market (nonce managed automatically). Optionally sign as a Nostr event (kind 30150) for portable proof of authorship.",
+            "Submit a sealed forecast for a market (nonce managed automatically). If RAIJU_NOSTR_SECRET_KEY is set in the MCP host environment, also sign a Nostr event (kind 30150) for portable proof of authorship.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "market_id": { "type": "string", "description": "UUID of the market" },
-                    "prediction_bps": { "type": "integer", "description": "Forecast in basis points (0=NO, 10000=YES, 5000=50/50)" },
-                    "nostr_secret_key": { "type": "string", "description": "Optional: 64-char hex Nostr secret key. If provided, signs the commitment as a kind 30150 Nostr event. Never sent to server." }
+                    "prediction_bps": { "type": "integer", "description": "Forecast in basis points (0=NO, 10000=YES, 5000=50/50)" }
                 },
                 "required": ["market_id", "prediction_bps"]
             }),
         ),
         tool_def(
             "raiju_reveal",
-            "Reveal a previously committed forecast. Optionally sign as a Nostr event (kind 30150) for portable proof.",
+            "Reveal a previously committed forecast. If RAIJU_NOSTR_SECRET_KEY is set in the MCP host environment, also sign a Nostr event (kind 30150) for portable proof.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "market_id": { "type": "string", "description": "UUID of the market" },
-                    "nostr_secret_key": { "type": "string", "description": "Optional: 64-char hex Nostr secret key. If provided, signs the reveal as a kind 30150 Nostr event. Never sent to server." }
+                    "market_id": { "type": "string", "description": "UUID of the market" }
                 },
                 "required": ["market_id"]
             }),
@@ -487,13 +499,9 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         // ADR-028: Nostr identity
         tool_def(
             "raiju_nostr_bind",
-            "Bind a Nostr identity to your agent. Handles challenge-response automatically: requests a challenge, signs it with your Nostr secret key (BIP-340 Schnorr), and submits the binding. Your Nostr pubkey will appear on the leaderboard as a portable, cross-platform identity.",
+            "Bind a Nostr identity to your agent. Uses RAIJU_NOSTR_SECRET_KEY from the MCP host environment to request a challenge, sign it with BIP-340 Schnorr, and submit the binding. Your Nostr pubkey will appear on the leaderboard as a portable, cross-platform identity.",
             serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "nostr_secret_key": { "type": "string", "description": "64-character hex-encoded Nostr secret key (nsec in hex form). Used to derive the public key and sign the challenge. Never sent to the server." }
-                },
-                "required": ["nostr_secret_key"]
+                "type": "object", "properties": {}
             }),
         ),
         tool_def(
@@ -533,6 +541,27 @@ fn market_id_schema() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use sha2::{Digest, Sha256};
+    use std::sync::{LazyLock, Mutex};
+
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    fn with_nostr_env<T>(value: Option<&str>, f: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.lock().unwrap();
+        match value {
+            Some(v) => {
+                // SAFETY: tests serialize access to process env with ENV_LOCK.
+                unsafe { std::env::set_var("RAIJU_NOSTR_SECRET_KEY", v) };
+            }
+            None => {
+                // SAFETY: tests serialize access to process env with ENV_LOCK.
+                unsafe { std::env::remove_var("RAIJU_NOSTR_SECRET_KEY") };
+            }
+        }
+        let result = f();
+        // SAFETY: tests serialize access to process env with ENV_LOCK.
+        unsafe { std::env::remove_var("RAIJU_NOSTR_SECRET_KEY") };
+        result
+    }
 
     fn mcp_compute_hash(prediction_bps: u16, nonce: &[u8]) -> String {
         let pred_bytes = i32::from(prediction_bps).to_be_bytes();
@@ -750,7 +779,6 @@ mod tests {
             ("raiju_commit", vec!["market_id", "prediction_bps"]),
             ("raiju_reveal", vec!["market_id"]),
             ("raiju_trade", vec!["market_id", "direction", "shares"]),
-            ("raiju_nostr_bind", vec!["nostr_secret_key"]),
         ];
 
         for (tool_name, required_fields) in &tools_with_required {
@@ -780,6 +808,7 @@ mod tests {
             "raiju_my_status",
             "raiju_my_positions",
             "raiju_my_payouts",
+            "raiju_nostr_bind",
             "raiju_nostr_unbind",
         ];
         for name in &no_arg_tools {
@@ -968,34 +997,39 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// raiju_nostr_bind with missing secret key returns error.
+    /// raiju_nostr_bind without host env secret returns error.
     #[test]
     fn call_tool_nostr_bind_missing_secret_key() {
         let client = super::RaijuClient::new("http://localhost:9999", "", "agent-1");
-        let result = client.call_tool("raiju_nostr_bind", &serde_json::json!({}));
+        let result =
+            with_nostr_env(None, || client.call_tool("raiju_nostr_bind", &serde_json::json!({})));
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("nostr_secret_key"), "should mention nostr_secret_key, got: {err}");
+        assert!(
+            err.contains("RAIJU_NOSTR_SECRET_KEY"),
+            "should mention host env secret, got: {err}"
+        );
     }
 
-    /// raiju_nostr_bind with invalid hex returns error.
+    /// raiju_nostr_bind with invalid hex in host env returns error.
     #[test]
     fn call_tool_nostr_bind_invalid_hex() {
         let client = super::RaijuClient::new("http://localhost:9999", "", "agent-1");
-        let args = serde_json::json!({"nostr_secret_key": "not_hex_at_all!"});
-        let result = client.call_tool("raiju_nostr_bind", &args);
+        let result = with_nostr_env(Some("not_hex_at_all!"), || {
+            client.call_tool("raiju_nostr_bind", &serde_json::json!({}))
+        });
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("hex"), "should mention hex, got: {err}");
     }
 
-    /// raiju_nostr_bind with valid hex but wrong length returns error.
+    /// raiju_nostr_bind with wrong key length in host env returns error.
     #[test]
     fn call_tool_nostr_bind_wrong_key_length() {
         let client = super::RaijuClient::new("http://localhost:9999", "", "agent-1");
-        // 16 bytes instead of 32
-        let args = serde_json::json!({"nostr_secret_key": "aabbccddaabbccddaabbccddaabbccdd"});
-        let result = client.call_tool("raiju_nostr_bind", &args);
+        let result = with_nostr_env(Some("aabbccddaabbccddaabbccddaabbccdd"), || {
+            client.call_tool("raiju_nostr_bind", &serde_json::json!({}))
+        });
         assert!(result.is_err());
     }
 

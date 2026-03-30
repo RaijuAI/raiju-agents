@@ -13,7 +13,7 @@ pub struct StoredNonce {
     pub nonce: String,
 }
 
-/// Validate that a market_id is a valid UUID to prevent path traversal.
+/// Validate that a `market_id` is a valid UUID to prevent path traversal.
 /// Rejects anything containing path separators, dots, or non-hex characters.
 fn validate_market_id(market_id: &str) -> Result<()> {
     // UUID format: 8-4-4-4-12 hex characters with hyphens

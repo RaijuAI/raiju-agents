@@ -145,6 +145,35 @@ fn tools_list_contains_critical_tools() {
     assert!(names.contains(&"raiju_nostr_unbind"), "missing raiju_nostr_unbind");
 }
 
+#[test]
+fn tools_list_commit_does_not_expose_nostr_secret_key() {
+    let resp = send_and_parse(r#"{"jsonrpc":"2.0","method":"tools/list","id":4}"#);
+
+    let tools = resp["result"]["tools"].as_array().unwrap();
+    let commit_tool = tools.iter().find(|t| t["name"] == "raiju_commit").unwrap();
+    let props = &commit_tool["inputSchema"]["properties"];
+
+    assert!(
+        props.get("nostr_secret_key").is_none(),
+        "raiju_commit should not expose raw nostr_secret_key in its tool schema"
+    );
+}
+
+#[test]
+fn tools_list_reveal_and_bind_do_not_expose_nostr_secret_key() {
+    let resp = send_and_parse(r#"{"jsonrpc":"2.0","method":"tools/list","id":5}"#);
+
+    let tools = resp["result"]["tools"].as_array().unwrap();
+    for tool_name in ["raiju_reveal", "raiju_nostr_bind"] {
+        let tool = tools.iter().find(|t| t["name"] == tool_name).unwrap();
+        let props = &tool["inputSchema"]["properties"];
+        assert!(
+            props.get("nostr_secret_key").is_none(),
+            "{tool_name} should not expose raw nostr_secret_key in its tool schema"
+        );
+    }
+}
+
 // -------------------------------------------------------
 // tools/call method - error handling
 // -------------------------------------------------------

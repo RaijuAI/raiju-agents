@@ -7,7 +7,7 @@
 //!   raiju deposit --market <ID> --agent <ID> --amount 5000
 //!   raiju commit --market <ID> --agent <ID> --prediction 7200
 //!   raiju reveal --market <ID> --agent <ID>
-//!   raiju trade --market <ID> --agent <ID> --direction buy_yes --shares 10
+//!   raiju trade --market <ID> --agent <ID> --direction `buy_yes` --shares 10
 //!   raiju leaderboard
 
 use anyhow::{Context, Result};
@@ -24,7 +24,7 @@ const MAX_PREDICTION_BPS: u16 = 10000;
 #[derive(Parser)]
 #[command(name = "raiju", about = "Raiju CLI - AI calibration arena")]
 struct Cli {
-    /// Server URL (for admin commands, point this at the admin server, e.g. http://localhost:3002)
+    /// Server URL (for admin commands, point this at the admin server, e.g. <http://localhost:3002>)
     #[arg(long, default_value = "https://raiju.ai", env = "RAIJU_URL")]
     url: String,
 
@@ -63,7 +63,7 @@ enum Commands {
         /// Agent description (up to 1000 chars)
         #[arg(long)]
         description: Option<String>,
-        /// HuggingFace or GitHub repo URL
+        /// `HuggingFace` or GitHub repo URL
         #[arg(long)]
         repo_url: Option<String>,
     },
@@ -82,7 +82,7 @@ enum Commands {
     },
 
     /// Deposit sats into a market. Amount must be >= pool entry sats. First
-    /// pool_entry locked for BWM prediction scoring. Excess available for AMM
+    /// `pool_entry` locked for BWM prediction scoring. Excess available for AMM
     /// token trading.
     Deposit {
         #[arg(long)]
@@ -102,9 +102,12 @@ enum Commands {
         #[arg(long)]
         prediction: u16,
         /// Sign the commitment as a Nostr event (kind 30150) for portable proof.
-        /// Provide your 64-char hex Nostr secret key (prefer RAIJU_NOSTR_SECRET_KEY env var).
-        #[arg(long, env = "RAIJU_NOSTR_SECRET_KEY")]
-        nostr_sign: Option<String>,
+        /// Requires `RAIJU_NOSTR_SECRET_KEY` or `--nostr-secret-key-file`.
+        #[arg(long, default_value_t = false)]
+        nostr_sign: bool,
+        /// Path to a file containing a 64-char hex Nostr secret key.
+        #[arg(long)]
+        nostr_secret_key_file: Option<PathBuf>,
     },
 
     /// Reveal a previously committed prediction
@@ -114,9 +117,12 @@ enum Commands {
         #[arg(long)]
         agent: String,
         /// Sign the reveal as a Nostr event (kind 30150) for portable proof.
-        /// Provide your 64-char hex Nostr secret key (prefer RAIJU_NOSTR_SECRET_KEY env var).
-        #[arg(long, env = "RAIJU_NOSTR_SECRET_KEY")]
-        nostr_sign: Option<String>,
+        /// Requires `RAIJU_NOSTR_SECRET_KEY` or `--nostr-secret-key-file`.
+        #[arg(long, default_value_t = false)]
+        nostr_sign: bool,
+        /// Path to a file containing a 64-char hex Nostr secret key.
+        #[arg(long)]
+        nostr_secret_key_file: Option<PathBuf>,
     },
 
     /// Check AMM trading balance for an agent in a market
@@ -251,9 +257,10 @@ enum Commands {
 
     /// Sign in with Nostr (auto-creates account if new, ADR-028)
     AuthNostr {
-        /// 64-character hex-encoded Nostr secret key (nsec in hex form)
+        /// Path to a file containing a 64-character hex-encoded Nostr secret key.
+        /// If omitted, falls back to `RAIJU_NOSTR_SECRET_KEY`.
         #[arg(long)]
-        secret_key: String,
+        secret_key_file: Option<PathBuf>,
     },
 
     /// Request a Nostr identity binding challenge (ADR-028)
@@ -276,7 +283,7 @@ enum Commands {
     /// Unbind the Nostr public key from your agent (ADR-028)
     NostrUnbind,
 
-    /// Admin commands (point --url at the admin server, e.g. http://localhost:3002)
+    /// Admin commands (point --url at the admin server, e.g. <http://localhost:3002>)
     Admin {
         #[command(subcommand)]
         action: AdminCommands,
@@ -293,7 +300,7 @@ enum AdminCommands {
         /// Resolution criteria
         #[arg(long, default_value = "Resolved by oracle")]
         criteria: String,
-        /// Oracle tier: on_chain, api_median, human_override
+        /// Oracle tier: `on_chain`, `api_median`, `human_override`
         #[arg(long, default_value = "api_median")]
         oracle_tier: String,
         /// Fixed deposit amount per agent in sats
@@ -496,12 +503,19 @@ fn main() -> Result<()> {
             println!("Status: {}", resp["status"]);
         }
 
-        Commands::Commit { market, agent, prediction, nostr_sign } => {
-            cmd_commit(&ctx, &market, &agent, prediction, nostr_sign.as_deref())?;
+        Commands::Commit { market, agent, prediction, nostr_sign, nostr_secret_key_file } => {
+            cmd_commit(
+                &ctx,
+                &market,
+                &agent,
+                prediction,
+                nostr_sign,
+                nostr_secret_key_file.as_ref(),
+            )?;
         }
 
-        Commands::Reveal { market, agent, nostr_sign } => {
-            cmd_reveal(&ctx, &market, &agent, nostr_sign.as_deref())?;
+        Commands::Reveal { market, agent, nostr_sign, nostr_secret_key_file } => {
+            cmd_reveal(&ctx, &market, &agent, nostr_sign, nostr_secret_key_file.as_ref())?;
         }
 
         Commands::Balance { market, agent } => {
@@ -659,8 +673,8 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&resp)?);
         }
 
-        Commands::AuthNostr { secret_key } => {
-            cmd_auth_nostr(&ctx, &secret_key)?;
+        Commands::AuthNostr { secret_key_file } => {
+            cmd_auth_nostr(&ctx, secret_key_file.as_ref())?;
         }
 
         Commands::NostrChallenge { pubkey } => {
@@ -730,7 +744,7 @@ fn build_nostr_prediction_event(
     }))
 }
 
-/// Validate that a market_id is a valid UUID to prevent path traversal in nonce files.
+/// Validate that a `market_id` is a valid UUID to prevent path traversal in nonce files.
 fn validate_market_uuid(market_id: &str) -> Result<()> {
     if market_id.len() != 36 {
         anyhow::bail!("invalid market_id: expected UUID format");
@@ -752,12 +766,37 @@ fn validate_market_uuid(market_id: &str) -> Result<()> {
     Ok(())
 }
 
+fn read_secret_from_file(path: &PathBuf) -> Result<String> {
+    Ok(std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read secret key file {}", path.display()))?
+        .trim()
+        .to_string())
+}
+
+fn load_nostr_secret_key(
+    secret_key_file: Option<&PathBuf>,
+    require_explicit_opt_in: bool,
+) -> Result<Option<String>> {
+    if let Some(path) = secret_key_file {
+        return Ok(Some(read_secret_from_file(path)?));
+    }
+
+    match std::env::var("RAIJU_NOSTR_SECRET_KEY") {
+        Ok(value) if !value.trim().is_empty() => Ok(Some(value.trim().to_string())),
+        _ if require_explicit_opt_in => anyhow::bail!(
+            "Nostr signing requires RAIJU_NOSTR_SECRET_KEY or --nostr-secret-key-file"
+        ),
+        _ => Ok(None),
+    }
+}
+
 fn cmd_commit(
     ctx: &Ctx,
     market: &str,
     agent: &str,
     prediction: u16,
-    nostr_sign: Option<&str>,
+    nostr_sign: bool,
+    nostr_secret_key_file: Option<&PathBuf>,
 ) -> Result<()> {
     validate_market_uuid(market)?;
     if prediction > MAX_PREDICTION_BPS {
@@ -791,7 +830,13 @@ fn cmd_commit(
         "commitment_hash": hash,
     });
 
-    if let Some(nsec) = nostr_sign {
+    let maybe_nostr_secret = if nostr_sign || nostr_secret_key_file.is_some() {
+        load_nostr_secret_key(nostr_secret_key_file, true)?
+    } else {
+        None
+    };
+
+    if let Some(nsec) = maybe_nostr_secret.as_deref() {
         let tags = serde_json::json!([
             ["d", format!("raiju:commit:{market}")],
             ["market_id", market],
@@ -808,7 +853,13 @@ fn cmd_commit(
     Ok(())
 }
 
-fn cmd_reveal(ctx: &Ctx, market: &str, agent: &str, nostr_sign: Option<&str>) -> Result<()> {
+fn cmd_reveal(
+    ctx: &Ctx,
+    market: &str,
+    agent: &str,
+    nostr_sign: bool,
+    nostr_secret_key_file: Option<&PathBuf>,
+) -> Result<()> {
     validate_market_uuid(market)?;
     let nonce_file = nonce_dir()?.join(format!("{market}.json"));
     let data: serde_json::Value = serde_json::from_str(
@@ -825,7 +876,13 @@ fn cmd_reveal(ctx: &Ctx, market: &str, agent: &str, nostr_sign: Option<&str>) ->
         "nonce": nonce_val,
     });
 
-    if let Some(nsec) = nostr_sign {
+    let maybe_nostr_secret = if nostr_sign || nostr_secret_key_file.is_some() {
+        load_nostr_secret_key(nostr_secret_key_file, true)?
+    } else {
+        None
+    };
+
+    if let Some(nsec) = maybe_nostr_secret.as_deref() {
         let tags = serde_json::json!([
             ["d", format!("raiju:reveal:{market}")],
             ["market_id", market],
@@ -847,9 +904,11 @@ fn cmd_reveal(ctx: &Ctx, market: &str, agent: &str, nostr_sign: Option<&str>) ->
 }
 
 /// Sign in with Nostr: create a NIP-98 event, sign it, and submit to /v1/auth/nostr.
-fn cmd_auth_nostr(ctx: &Ctx, secret_key_hex: &str) -> Result<()> {
+fn cmd_auth_nostr(ctx: &Ctx, secret_key_file: Option<&PathBuf>) -> Result<()> {
     use base64::Engine;
 
+    let secret_key_hex = load_nostr_secret_key(secret_key_file, true)?
+        .context("auth-nostr requires RAIJU_NOSTR_SECRET_KEY or --secret-key-file")?;
     let sk_bytes = hex::decode(secret_key_hex).context("secret_key must be valid hex")?;
     let sk = secp256k1::SecretKey::from_slice(&sk_bytes)
         .context("secret_key must be a valid 32-byte secp256k1 secret key")?;
@@ -1104,7 +1163,7 @@ fn nonce_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".raiju").join("nonces"))
 }
 
-/// Extension trait to add error_for_status with readable error messages.
+/// Extension trait to add `error_for_status` with readable error messages.
 trait ResponseExt {
     fn api_error(self) -> Result<reqwest::blocking::Response>;
 }
@@ -1129,6 +1188,7 @@ impl ResponseExt for reqwest::blocking::Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
 
     /// Compute commitment hash using the CLI's logic (must match raiju-types and Python SDK).
     fn cli_compute_hash(prediction_bps: u16, nonce: &[u8]) -> String {
@@ -1210,5 +1270,13 @@ mod tests {
         // 10000 as i32 BE = [0x00, 0x00, 0x27, 0x10]
         let pred_bytes = (10000i32).to_be_bytes();
         assert_eq!(pred_bytes, [0x00, 0x00, 0x27, 0x10]);
+    }
+
+    #[test]
+    fn test_auth_nostr_accepts_secret_key_file_instead_of_raw_argv_secret() {
+        let parsed =
+            Cli::try_parse_from(["raiju", "auth-nostr", "--secret-key-file", "/tmp/nostr.key"]);
+
+        assert!(parsed.is_ok(), "CLI should support a safer non-argv secret source for auth-nostr");
     }
 }

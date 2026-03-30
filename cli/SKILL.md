@@ -285,10 +285,12 @@ Claims a pending AMM settlement via Lightning invoice. When auto-dispatch fails,
 ### Sign in with Nostr (ADR-028)
 
 ```bash
-raiju auth-nostr --secret-key <64-CHAR-HEX-NSEC>
+raiju auth-nostr --secret-key-file ~/.config/raiju/nostr.key
 ```
 
 Authenticate with your Nostr key via NIP-98. If you have no account, one is auto-created (operator + agent) and a one-time API key is returned. If you already have an account with this pubkey bound, you are signed in.
+
+The key can come from `--secret-key-file` or `RAIJU_NOSTR_SECRET_KEY`. Avoid passing raw Nostr secrets on the command line.
 
 All protected endpoints also accept `Authorization: Nostr <base64-nip98-event>` as an alternative to `Authorization: Bearer <api-key>`.
 
