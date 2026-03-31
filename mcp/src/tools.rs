@@ -54,8 +54,36 @@ impl RaijuClient {
         self.send(self.http.get(format!("{}{path}", self.base_url)))
     }
 
-    fn post(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value> {
-        self.send(self.http.post(format!("{}{path}", self.base_url)).json(body))
+    fn random_idempotency_key(&self) -> String {
+        let bytes: [u8; 16] = rand::random();
+        hex::encode(bytes)
+    }
+
+    fn make_idempotency_key(&self, namespace: &str, parts: &[&str]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(namespace.as_bytes());
+        for part in parts {
+            hasher.update(b":");
+            hasher.update(part.as_bytes());
+        }
+        hex::encode(hasher.finalize())
+    }
+
+    fn post(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+        idempotency_key: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        self.send(
+            self.http
+                .post(format!("{}{path}", self.base_url))
+                .header(
+                    "Idempotency-Key",
+                    idempotency_key.unwrap_or(&self.random_idempotency_key()),
+                )
+                .json(body),
+        )
     }
 
     fn delete(&self, path: &str) -> Result<serde_json::Value> {
@@ -136,6 +164,7 @@ impl RaijuClient {
                         "agent_id": self.agent_id,
                         "amount_sats": amount,
                     }),
+                    Some(&self.random_idempotency_key()),
                 )
             }
             "raiju_commit" => {
@@ -148,9 +177,28 @@ impl RaijuClient {
                     anyhow::bail!("prediction_bps must be 0-10000");
                 }
 
-                // Generate nonce and compute commitment hash
-                let nonce_bytes: [u8; 32] = rand::random();
-                let nonce_hex = hex::encode(nonce_bytes);
+                let (prediction_bps, nonce_hex) = match nonce::load(market_id) {
+                    Ok(stored) => {
+                        if stored.prediction_bps != prediction_bps {
+                            anyhow::bail!(
+                                "existing nonce for market {market_id} was created for prediction_bps={}, got {}",
+                                stored.prediction_bps,
+                                prediction_bps
+                            );
+                        }
+                        (stored.prediction_bps, stored.nonce)
+                    }
+                    Err(_) => {
+                        let nonce_bytes: [u8; 32] = rand::random();
+                        let nonce_hex = hex::encode(nonce_bytes);
+                        nonce::store(market_id, prediction_bps, &nonce_hex)?;
+                        (prediction_bps, nonce_hex)
+                    }
+                };
+                let nonce_bytes: [u8; 32] = hex::decode(&nonce_hex)
+                    .context("stored nonce must be valid hex")?
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("stored nonce must be 32 bytes"))?;
 
                 let pred_bytes = i32::from(prediction_bps).to_be_bytes();
                 let mut hasher = Sha256::new();
@@ -158,9 +206,6 @@ impl RaijuClient {
                 hasher.update(pred_bytes);
                 hasher.update(nonce_bytes);
                 let hash = hex::encode(hasher.finalize());
-
-                // Store nonce for reveal
-                nonce::store(market_id, prediction_bps, &nonce_hex)?;
 
                 let mut body = serde_json::json!({
                     "agent_id": self.agent_id,
@@ -178,7 +223,8 @@ impl RaijuClient {
                     body["nostr_event"] = self.build_prediction_event(nsec, tags)?;
                 }
 
-                self.post(&format!("/v1/markets/{market_id}/commit"), &body)
+                let idem_key = self.make_idempotency_key("commit", &[market_id, &hash]);
+                self.post(&format!("/v1/markets/{market_id}/commit"), &body, Some(&idem_key))
             }
             "raiju_reveal" => {
                 let market_id = args["market_id"].as_str().context("market_id required")?;
@@ -202,7 +248,12 @@ impl RaijuClient {
                     body["nostr_event"] = self.build_prediction_event(nsec, tags)?;
                 }
 
-                let result = self.post(&format!("/v1/markets/{market_id}/reveal"), &body);
+                let idem_key = self.make_idempotency_key(
+                    "reveal",
+                    &[market_id, &stored.prediction_bps.to_string(), &stored.nonce],
+                );
+                let result =
+                    self.post(&format!("/v1/markets/{market_id}/reveal"), &body, Some(&idem_key));
 
                 // Clean up nonce on success
                 if result.is_ok() {
@@ -222,6 +273,7 @@ impl RaijuClient {
                         "direction": direction,
                         "shares": shares,
                     }),
+                    Some(&self.random_idempotency_key()),
                 )
             }
             "raiju_leaderboard" => {
@@ -294,6 +346,7 @@ impl RaijuClient {
                 let challenge_resp = self.post(
                     "/v1/agents/nostr/challenge",
                     &serde_json::json!({"nostr_pubkey": pubkey_hex}),
+                    Some(&self.random_idempotency_key()),
                 )?;
                 let challenge_hex = challenge_resp["challenge"]
                     .as_str()
@@ -317,6 +370,7 @@ impl RaijuClient {
                         "nostr_pubkey": pubkey_hex,
                         "signature": sig_hex,
                     }),
+                    Some(&self.random_idempotency_key()),
                 )
             }
             "raiju_nostr_unbind" => self.delete("/v1/agents/nostr/bind"),
@@ -544,6 +598,7 @@ mod tests {
     use std::sync::{LazyLock, Mutex};
 
     static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+    static HOME_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     fn with_nostr_env<T>(value: Option<&str>, f: impl FnOnce() -> T) -> T {
         let _guard = ENV_LOCK.lock().unwrap();
@@ -560,6 +615,19 @@ mod tests {
         let result = f();
         // SAFETY: tests serialize access to process env with ENV_LOCK.
         unsafe { std::env::remove_var("RAIJU_NOSTR_SECRET_KEY") };
+        result
+    }
+
+    fn with_temp_home<T>(f: impl FnOnce() -> T) -> T {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let original_home = std::env::var("HOME").ok();
+        unsafe { std::env::set_var("HOME", tmp.path()) };
+        let result = f();
+        match original_home {
+            Some(home) => unsafe { std::env::set_var("HOME", home) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
         result
     }
 
@@ -944,6 +1012,31 @@ mod tests {
         let args = serde_json::json!({"market_id": "some-id", "prediction_bps": "five thousand"});
         let result = client.call_tool("raiju_commit", &args);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_audit_commit_retry_preserves_original_nonce() {
+        with_temp_home(|| {
+            let client = super::RaijuClient::new("http://127.0.0.1:1", "", "agent-1");
+            let market_id = "550e8400-e29b-41d4-a716-446655440099";
+
+            let first = serde_json::json!({"market_id": market_id, "prediction_bps": 5000});
+            let second = serde_json::json!({"market_id": market_id, "prediction_bps": 7000});
+
+            let result1 = client.call_tool("raiju_commit", &first);
+            assert!(result1.is_err());
+            let stored1 = crate::nonce::load(market_id).unwrap();
+
+            let result2 = client.call_tool("raiju_commit", &second);
+            assert!(result2.is_err());
+            let stored2 = crate::nonce::load(market_id).unwrap();
+
+            assert_eq!(
+                stored2.prediction_bps, stored1.prediction_bps,
+                "retry must preserve the original nonce payload until commit success is known"
+            );
+            assert_eq!(stored2.nonce, stored1.nonce);
+        });
     }
 
     /// raiju_commit with prediction_bps > u16::MAX returns error.

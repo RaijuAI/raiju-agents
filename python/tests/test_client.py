@@ -102,7 +102,9 @@ def test_build_query_all_none():
 
 def test_build_query_mixed():
     """Verify _build_query includes only non-None params."""
-    result = RaijuClient._build_query({"limit": 10, "offset": None, "category": "bitcoin"})
+    result = RaijuClient._build_query(
+        {"limit": 10, "offset": None, "category": "bitcoin"}
+    )
     assert "limit=10" in result
     assert "category=bitcoin" in result
     assert "offset" not in result
@@ -131,6 +133,49 @@ def test_nonce_disk_persistence(tmp_path):
     assert client._load_nonce("market-1") is None
 
 
+def test_audit_commit_retry_preserves_original_nonce_after_ambiguous_failure(tmp_path):
+    """A retry after an ambiguous commit failure must not overwrite the original nonce."""
+    client = RaijuClient(api_key="test", nonce_dir=str(tmp_path))
+    market_id = "550e8400-e29b-41d4-a716-446655440099"
+    nonce1 = bytes.fromhex("11" * 32)
+    nonce2 = bytes.fromhex("22" * 32)
+
+    with patch("os.urandom", side_effect=[nonce1, nonce2]):
+        with patch.object(
+            client,
+            "_post",
+            side_effect=[
+                RuntimeError("timeout after server accepted commit"),
+                RuntimeError("already committed"),
+            ],
+        ):
+            with pytest.raises(RuntimeError):
+                client.commit(market_id, "agent-1", 5000)
+
+            stored = client._load_nonce(market_id)
+            assert stored is not None
+            assert stored[1] == nonce1
+
+            with pytest.raises(RuntimeError):
+                client.commit(market_id, "agent-1", 5000)
+
+    loaded = client._load_nonce(market_id)
+    assert loaded is not None
+    assert loaded[1] == nonce1, "retry must preserve the original reveal nonce"
+
+
+def test_audit_protected_write_includes_idempotency_key():
+    """Protected writes should include an Idempotency-Key so retries are safe."""
+    client = RaijuClient(api_key="test")
+    with patch.object(
+        client.session, "post", return_value=_mock_response({"id": "d1"})
+    ) as mock_post:
+        client.deposit("market-1", "agent-1", 10000)
+
+    headers = mock_post.call_args.kwargs.get("headers") or {}
+    assert "Idempotency-Key" in headers, "protected writes must send an Idempotency-Key"
+
+
 # ---------------------------------------------------------------------------
 # Helper to mock HTTP responses
 # ---------------------------------------------------------------------------
@@ -157,9 +202,13 @@ class TestListCategories:
         """Verify list_categories hits /v1/markets/categories."""
         client = RaijuClient(api_key="test")
         expected = [{"slug": "bitcoin", "name": "Bitcoin", "market_count": 5}]
-        with patch.object(client.session, "get", return_value=_mock_response(expected)) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response(expected)
+        ) as mock_get:
             result = client.list_categories()
-            mock_get.assert_called_once_with("http://localhost:3001/v1/markets/categories")
+            mock_get.assert_called_once_with(
+                "http://localhost:3001/v1/markets/categories"
+            )
             assert result == expected
 
     def test_list_categories_returns_empty_list(self):
@@ -183,7 +232,9 @@ class TestNostrChallenge:
         client = RaijuClient(api_key="test")
         pubkey = "a" * 64
         expected = {"challenge": "deadbeef" * 8, "expires_at": "2026-03-28T00:00:00Z"}
-        with patch.object(client.session, "post", return_value=_mock_response(expected)) as mock_post:
+        with patch.object(
+            client.session, "post", return_value=_mock_response(expected)
+        ) as mock_post:
             result = client.nostr_challenge(pubkey)
             mock_post.assert_called_once_with(
                 "http://localhost:3001/v1/agents/nostr/challenge",
@@ -195,7 +246,11 @@ class TestNostrChallenge:
         """Verify the pubkey is sent as-is without transformation."""
         client = RaijuClient(api_key="test")
         pubkey = "0123456789abcdef" * 4
-        with patch.object(client.session, "post", return_value=_mock_response({"challenge": "ff" * 32})) as mock_post:
+        with patch.object(
+            client.session,
+            "post",
+            return_value=_mock_response({"challenge": "ff" * 32}),
+        ) as mock_post:
             client.nostr_challenge(pubkey)
             call_data = mock_post.call_args[1]["json"]
             assert call_data["nostr_pubkey"] == pubkey
@@ -209,8 +264,14 @@ class TestNostrBind:
         client = RaijuClient(api_key="test")
         pubkey = "a" * 64
         sig = "b" * 128
-        expected = {"agent_id": "uuid-1", "nostr_pubkey": pubkey, "verified_at": "2026-03-28T00:00:00Z"}
-        with patch.object(client.session, "post", return_value=_mock_response(expected)) as mock_post:
+        expected = {
+            "agent_id": "uuid-1",
+            "nostr_pubkey": pubkey,
+            "verified_at": "2026-03-28T00:00:00Z",
+        }
+        with patch.object(
+            client.session, "post", return_value=_mock_response(expected)
+        ) as mock_post:
             result = client.nostr_bind(pubkey, sig)
             mock_post.assert_called_once_with(
                 "http://localhost:3001/v1/agents/nostr/bind",
@@ -226,9 +287,13 @@ class TestNostrUnbind:
         """Verify nostr_unbind sends DELETE to /v1/agents/nostr/bind."""
         client = RaijuClient(api_key="test")
         expected = {"agent_id": "uuid-1", "unbound": True}
-        with patch.object(client.session, "delete", return_value=_mock_response(expected)) as mock_del:
+        with patch.object(
+            client.session, "delete", return_value=_mock_response(expected)
+        ) as mock_del:
             result = client.nostr_unbind()
-            mock_del.assert_called_once_with("http://localhost:3001/v1/agents/nostr/bind")
+            mock_del.assert_called_once_with(
+                "http://localhost:3001/v1/agents/nostr/bind"
+            )
             assert result["unbound"] is True
 
 
@@ -245,8 +310,14 @@ class TestAuthNostr:
         url = "http://localhost:3001/v1/auth/nostr"
         created_at = 1711584000
 
-        expected_resp = {"agent_id": "uuid-1", "operator_id": "op-1", "nostr_pubkey": pubkey}
-        with patch.object(client.session, "post", return_value=_mock_response(expected_resp)) as mock_post:
+        expected_resp = {
+            "agent_id": "uuid-1",
+            "operator_id": "op-1",
+            "nostr_pubkey": pubkey,
+        }
+        with patch.object(
+            client.session, "post", return_value=_mock_response(expected_resp)
+        ) as mock_post:
             result = client.auth_nostr(pubkey, sig, url, created_at)
 
             # Verify the Authorization header contains a base64-encoded Nostr event
@@ -270,15 +341,20 @@ class TestAuthNostr:
         url = "http://localhost:3001/v1/auth/nostr"
         created_at = 1711584000
 
-        with patch.object(client.session, "post", return_value=_mock_response({})) as mock_post:
+        with patch.object(
+            client.session, "post", return_value=_mock_response({})
+        ) as mock_post:
             client.auth_nostr(pubkey, sig, url, created_at)
             import base64
+
             auth_header = mock_post.call_args[1]["headers"]["Authorization"]
             decoded = json.loads(base64.b64decode(auth_header[6:]))
 
             # Recompute expected event ID
             tags = [["u", url], ["method", "POST"]]
-            serialized = json.dumps([0, pubkey, created_at, 27235, tags, ""], separators=(",", ":"))
+            serialized = json.dumps(
+                [0, pubkey, created_at, 27235, tags, ""], separators=(",", ":")
+            )
             expected_id = hashlib.sha256(serialized.encode()).hexdigest()
             assert decoded["id"] == expected_id
 
@@ -295,9 +371,13 @@ class TestGetPlatformKey:
         """Verify get_platform_key hits /v1/nostr/platform-key."""
         client = RaijuClient(api_key="test")
         expected = {"nostr_pubkey": "e" * 64}
-        with patch.object(client.session, "get", return_value=_mock_response(expected)) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response(expected)
+        ) as mock_get:
             result = client.get_platform_key()
-            mock_get.assert_called_once_with("http://localhost:3001/v1/nostr/platform-key")
+            mock_get.assert_called_once_with(
+                "http://localhost:3001/v1/nostr/platform-key"
+            )
             assert result["nostr_pubkey"] == "e" * 64
 
 
@@ -316,7 +396,9 @@ class TestGetNostrPredictionEvents:
             "reveal_event": None,
             "attestation_event": None,
         }
-        with patch.object(client.session, "get", return_value=_mock_response(expected)) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response(expected)
+        ) as mock_get:
             result = client.get_nostr_prediction_events(market_id, agent_id)
             mock_get.assert_called_once_with(
                 f"http://localhost:3001/v1/markets/{market_id}/predictions/{agent_id}/nostr"
@@ -352,7 +434,9 @@ class TestGetAgentAttestations:
             "platform_pubkey": "f" * 64,
             "attestations": [{"kind": 30151, "content": "..."}],
         }
-        with patch.object(client.session, "get", return_value=_mock_response(expected)) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response(expected)
+        ) as mock_get:
             result = client.get_agent_attestations(agent_id)
             mock_get.assert_called_once_with(
                 f"http://localhost:3001/v1/agents/{agent_id}/nostr/attestations"
@@ -379,7 +463,9 @@ class TestHealthAndStatus:
     def test_health_calls_correct_endpoint(self):
         """Verify health hits /v1/health."""
         client = RaijuClient(api_key="test")
-        with patch.object(client.session, "get", return_value=_mock_response({"status": "ok"})) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response({"status": "ok"})
+        ) as mock_get:
             result = client.health()
             mock_get.assert_called_once_with("http://localhost:3001/v1/health")
             assert result["status"] == "ok"
@@ -387,7 +473,9 @@ class TestHealthAndStatus:
     def test_server_status_calls_correct_endpoint(self):
         """Verify server_status hits /v1/status."""
         client = RaijuClient(api_key="test")
-        with patch.object(client.session, "get", return_value=_mock_response({"version": "0.5.0"})) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response({"version": "0.5.0"})
+        ) as mock_get:
             result = client.server_status()
             mock_get.assert_called_once_with("http://localhost:3001/v1/status")
             assert result["version"] == "0.5.0"
@@ -395,7 +483,13 @@ class TestHealthAndStatus:
     def test_node_info_calls_status_endpoint(self):
         """Verify node_info hits /v1/status (same as server_status)."""
         client = RaijuClient(api_key="test")
-        with patch.object(client.session, "get", return_value=_mock_response({"version": "0.5.0", "lightning_node_id": "03abc"})) as mock_get:
+        with patch.object(
+            client.session,
+            "get",
+            return_value=_mock_response(
+                {"version": "0.5.0", "lightning_node_id": "03abc"}
+            ),
+        ) as mock_get:
             result = client.node_info()
             mock_get.assert_called_once_with("http://localhost:3001/v1/status")
             assert result["lightning_node_id"] == "03abc"
@@ -403,9 +497,13 @@ class TestHealthAndStatus:
     def test_agent_status_includes_agent_id_in_path(self):
         """Verify status uses agent_id in the URL path."""
         client = RaijuClient(api_key="test")
-        with patch.object(client.session, "get", return_value=_mock_response({"active": True})) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response({"active": True})
+        ) as mock_get:
             client.status("agent-123")
-            mock_get.assert_called_once_with("http://localhost:3001/v1/agents/agent-123/status")
+            mock_get.assert_called_once_with(
+                "http://localhost:3001/v1/agents/agent-123/status"
+            )
 
 
 class TestListMarkets:
@@ -414,7 +512,9 @@ class TestListMarkets:
     def test_list_markets_with_category(self):
         """Verify list_markets passes category as query param."""
         client = RaijuClient(api_key="test")
-        with patch.object(client.session, "get", return_value=_mock_response([])) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response([])
+        ) as mock_get:
             client.list_markets(category="bitcoin")
             call_url = mock_get.call_args[0][0]
             assert "category=bitcoin" in call_url
@@ -422,7 +522,9 @@ class TestListMarkets:
     def test_list_markets_with_all_params(self):
         """Verify list_markets passes limit, offset, and category."""
         client = RaijuClient(api_key="test")
-        with patch.object(client.session, "get", return_value=_mock_response([])) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response([])
+        ) as mock_get:
             client.list_markets(limit=10, offset=20, category="stocks")
             call_url = mock_get.call_args[0][0]
             assert "limit=10" in call_url
@@ -432,7 +534,9 @@ class TestListMarkets:
     def test_list_markets_no_params(self):
         """Verify list_markets with no params hits bare endpoint."""
         client = RaijuClient(api_key="test")
-        with patch.object(client.session, "get", return_value=_mock_response([])) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response([])
+        ) as mock_get:
             client.list_markets()
             mock_get.assert_called_once_with("http://localhost:3001/v1/markets")
 
@@ -443,7 +547,9 @@ class TestListAgents:
     def test_list_agents_with_pagination(self):
         """Verify list_agents passes limit and offset."""
         client = RaijuClient(api_key="test")
-        with patch.object(client.session, "get", return_value=_mock_response([])) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response([])
+        ) as mock_get:
             client.list_agents(limit=5, offset=10)
             call_url = mock_get.call_args[0][0]
             assert "limit=5" in call_url
@@ -452,7 +558,9 @@ class TestListAgents:
     def test_list_agents_no_params(self):
         """Verify list_agents with no params hits bare endpoint."""
         client = RaijuClient(api_key="test")
-        with patch.object(client.session, "get", return_value=_mock_response([])) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response([])
+        ) as mock_get:
             client.list_agents()
             mock_get.assert_called_once_with("http://localhost:3001/v1/agents")
 
@@ -464,7 +572,9 @@ class TestSolvency:
         """Verify solvency hits /v1/solvency."""
         client = RaijuClient(api_key="test")
         expected = {"total_obligations_sats": 100000, "node_balance_sats": 150000}
-        with patch.object(client.session, "get", return_value=_mock_response(expected)) as mock_get:
+        with patch.object(
+            client.session, "get", return_value=_mock_response(expected)
+        ) as mock_get:
             result = client.solvency()
             mock_get.assert_called_once_with("http://localhost:3001/v1/solvency")
             assert result["total_obligations_sats"] == 100000

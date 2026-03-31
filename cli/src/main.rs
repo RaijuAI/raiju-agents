@@ -362,18 +362,57 @@ impl Ctx {
         Ok(())
     }
 
+    fn random_idempotency_key() -> String {
+        let bytes: [u8; 16] = rand::random();
+        hex::encode(bytes)
+    }
+
+    fn make_idempotency_key(namespace: &str, parts: &[&str]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(namespace.as_bytes());
+        for part in parts {
+            hasher.update(b":");
+            hasher.update(part.as_bytes());
+        }
+        hex::encode(hasher.finalize())
+    }
+
     /// Build an authenticated POST request.
     fn authed_post(&self, url: String) -> reqwest::blocking::RequestBuilder {
+        self.authed_post_with_key(url, None)
+    }
+
+    fn authed_post_with_key(
+        &self,
+        url: String,
+        idempotency_key: Option<&str>,
+    ) -> reqwest::blocking::RequestBuilder {
         let mut req = self.client.post(url);
         if let Some(ref h) = self.auth {
             req = req.headers(h.clone());
         }
+        req = req
+            .header("Idempotency-Key", idempotency_key.unwrap_or(&Self::random_idempotency_key()));
         req
     }
 
     /// Build an authenticated POST and send JSON, returning parsed response.
     fn authed_post_json(&self, url: String, body: &serde_json::Value) -> Result<serde_json::Value> {
         Ok(self.authed_post(url).json(body).send()?.api_error()?.json()?)
+    }
+
+    fn authed_post_json_with_key(
+        &self,
+        url: String,
+        body: &serde_json::Value,
+        idempotency_key: &str,
+    ) -> Result<serde_json::Value> {
+        Ok(self
+            .authed_post_with_key(url, Some(idempotency_key))
+            .json(body)
+            .send()?
+            .api_error()?
+            .json()?)
     }
 }
 
@@ -803,9 +842,37 @@ fn cmd_commit(
         anyhow::bail!("prediction must be 0-{MAX_PREDICTION_BPS} basis points");
     }
 
-    // Generate nonce
-    let nonce: [u8; 32] = rand::random();
-    let nonce_hex = hex::encode(nonce);
+    let nonce_dir = nonce_dir()?;
+    std::fs::create_dir_all(&nonce_dir)?;
+    let nonce_file = nonce_dir.join(format!("{market}.json"));
+
+    let (prediction, nonce_hex) = if nonce_file.exists() {
+        let existing: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&nonce_file)?)?;
+        let stored_prediction = existing["prediction_bps"]
+            .as_u64()
+            .context("stored nonce missing prediction_bps")? as u16;
+        let stored_nonce =
+            existing["nonce"].as_str().context("stored nonce missing nonce")?.to_string();
+        if stored_prediction != prediction {
+            anyhow::bail!(
+                "existing nonce for market {market} was created for prediction_bps={stored_prediction}, got {prediction}"
+            );
+        }
+        (stored_prediction, stored_nonce)
+    } else {
+        let nonce: [u8; 32] = rand::random();
+        let nonce_hex = hex::encode(nonce);
+        let nonce_data = serde_json::json!({
+            "prediction_bps": prediction,
+            "nonce": nonce_hex,
+        });
+        std::fs::write(&nonce_file, serde_json::to_string(&nonce_data)?)?;
+        (prediction, nonce_hex)
+    };
+    let nonce: [u8; 32] = hex::decode(&nonce_hex)?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("stored nonce must be 32 bytes"))?;
 
     // Compute commitment hash with domain separator (ADR-004)
     let pred_bytes = (prediction as i32).to_be_bytes();
@@ -814,16 +881,6 @@ fn cmd_commit(
     hasher.update(pred_bytes);
     hasher.update(nonce);
     let hash = hex::encode(hasher.finalize());
-
-    // Store nonce for reveal
-    let nonce_dir = nonce_dir()?;
-    std::fs::create_dir_all(&nonce_dir)?;
-    let nonce_file = nonce_dir.join(format!("{market}.json"));
-    let nonce_data = serde_json::json!({
-        "prediction_bps": prediction,
-        "nonce": nonce_hex,
-    });
-    std::fs::write(&nonce_file, serde_json::to_string(&nonce_data)?)?;
 
     let mut body = serde_json::json!({
         "agent_id": agent,
@@ -847,7 +904,12 @@ fn cmd_commit(
         println!("Nostr event signed (kind 30150)");
     }
 
-    let resp = ctx.authed_post_json(format!("{}/v1/markets/{market}/commit", ctx.base), &body)?;
+    let idem_key = Ctx::make_idempotency_key("commit", &[market, &hash]);
+    let resp = ctx.authed_post_json_with_key(
+        format!("{}/v1/markets/{market}/commit", ctx.base),
+        &body,
+        &idem_key,
+    )?;
     println!("Commitment: {}", resp["status"]);
     println!("Nonce stored at: {}", nonce_file.display());
     Ok(())
@@ -894,7 +956,15 @@ fn cmd_reveal(
         println!("Nostr event signed (kind 30150)");
     }
 
-    let resp = ctx.authed_post_json(format!("{}/v1/markets/{market}/reveal", ctx.base), &body)?;
+    let idem_key = Ctx::make_idempotency_key(
+        "reveal",
+        &[market, pred_bps.as_str().unwrap_or(""), nonce_val.as_str().unwrap_or("")],
+    );
+    let resp = ctx.authed_post_json_with_key(
+        format!("{}/v1/markets/{market}/reveal", ctx.base),
+        &body,
+        &idem_key,
+    )?;
     println!("Revealed: {} bps", resp["prediction_bps"]);
     println!("Status: {}", resp["status"]);
 
@@ -1278,5 +1348,24 @@ mod tests {
             Cli::try_parse_from(["raiju", "auth-nostr", "--secret-key-file", "/tmp/nostr.key"]);
 
         assert!(parsed.is_ok(), "CLI should support a safer non-argv secret source for auth-nostr");
+    }
+
+    #[test]
+    fn test_audit_protected_write_includes_idempotency_key() {
+        let ctx = Ctx {
+            client: reqwest::blocking::Client::new(),
+            base: "http://localhost:3001".to_string(),
+            auth: None,
+        };
+
+        let req = ctx
+            .authed_post("http://localhost:3001/v1/markets/123/deposit".to_string())
+            .build()
+            .unwrap();
+
+        assert!(
+            req.headers().contains_key("Idempotency-Key"),
+            "protected CLI writes must include an Idempotency-Key header"
+        );
     }
 }

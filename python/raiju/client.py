@@ -13,6 +13,7 @@ Usage:
 import hashlib
 import json
 import os
+import uuid
 
 import requests
 
@@ -29,10 +30,12 @@ class RaijuClient:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
-        self.session.headers.update({
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        })
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+        )
         # Nonce persistence: file-based (survives process restarts)
         self._nonce_dir = nonce_dir or os.path.join(
             os.path.expanduser("~"), ".raiju", "nonces"
@@ -53,9 +56,23 @@ class RaijuClient:
         resp.raise_for_status()
         return resp.json()
 
-    def _post(self, path: str, data: dict | None = None) -> dict:
+    def _make_idempotency_key(self, namespace: str, *parts: object) -> str:
+        material = ":".join([namespace, *[str(part) for part in parts]])
+        return hashlib.sha256(material.encode()).hexdigest()
+
+    def _random_idempotency_key(self) -> str:
+        return uuid.uuid4().hex
+
+    def _post(
+        self,
+        path: str,
+        data: dict | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict:
         """Send a POST request and return the JSON response."""
-        resp = self.session.post(f"{self.base_url}{path}", json=data)
+        headers = {"Idempotency-Key": idempotency_key or self._random_idempotency_key()}
+        resp = self.session.post(f"{self.base_url}{path}", json=data, headers=headers)
         resp.raise_for_status()
         return resp.json()
 
@@ -101,7 +118,9 @@ class RaijuClient:
             offset: Skip first N results.
             category: Filter by category (bitcoin, lightning, crypto, stocks, indices, forex, commodities, economy, sim).
         """
-        query = self._build_query({"limit": limit, "offset": offset, "category": category})
+        query = self._build_query(
+            {"limit": limit, "offset": offset, "category": category}
+        )
         return self._get(f"/v1/markets{query}")
 
     def list_categories(self) -> list[dict]:
@@ -138,6 +157,7 @@ class RaijuClient:
         return self._post(
             f"/v1/markets/{market_id}/amm/trade",
             {"agent_id": agent_id, "direction": direction, "shares": shares},
+            idempotency_key=self._random_idempotency_key(),
         )
 
     # -- Deposits --
@@ -160,6 +180,7 @@ class RaijuClient:
         return self._post(
             f"/v1/markets/{market_id}/deposit",
             {"agent_id": agent_id, "amount_sats": amount_sats},
+            idempotency_key=self._random_idempotency_key(),
         )
 
     def amm_balance(self, market_id: str, agent_id: str) -> dict:
@@ -194,22 +215,39 @@ class RaijuClient:
         if not 0 <= prediction_bps <= 10000:
             raise ValueError(f"prediction_bps must be 0-10000, got {prediction_bps}")
 
-        # Generate 32-byte nonce (256-bit entropy)
-        nonce = os.urandom(32)
+        stored = self._nonces.get(market_id)
+        if stored is None:
+            loaded = self._load_nonce(market_id)
+            if loaded is not None:
+                self._nonces[market_id] = loaded
+                stored = loaded
+
+        if stored is not None:
+            stored_prediction_bps, nonce = stored
+            if stored_prediction_bps != prediction_bps:
+                raise ValueError(
+                    f"existing nonce for market {market_id} was created for prediction_bps={stored_prediction_bps}, got {prediction_bps}"
+                )
+        else:
+            nonce = os.urandom(32)
+            self._nonces[market_id] = (prediction_bps, nonce)
+            self._save_nonce(market_id, prediction_bps, nonce)
 
         # Compute commitment hash: SHA-256("raiju-v1:" || 4-byte BE i32 prediction || nonce)
         pred_bytes = prediction_bps.to_bytes(4, "big", signed=True)
         commitment_hash = hashlib.sha256(b"raiju-v1:" + pred_bytes + nonce).hexdigest()
 
-        # Store for reveal (both in-memory and on disk)
-        self._nonces[market_id] = (prediction_bps, nonce)
-        self._save_nonce(market_id, prediction_bps, nonce)
-
         body: dict = {"agent_id": agent_id, "commitment_hash": commitment_hash}
         if nostr_event is not None:
             body["nostr_event"] = nostr_event
 
-        return self._post(f"/v1/markets/{market_id}/commit", body)
+        return self._post(
+            f"/v1/markets/{market_id}/commit",
+            body,
+            idempotency_key=self._make_idempotency_key(
+                "commit", market_id, commitment_hash
+            ),
+        )
 
     def reveal(
         self,
@@ -230,7 +268,9 @@ class RaijuClient:
             # Try loading from disk (survives process restarts)
             loaded = self._load_nonce(market_id)
             if loaded is None:
-                raise ValueError(f"No stored nonce for market {market_id}. Did you call commit()?")
+                raise ValueError(
+                    f"No stored nonce for market {market_id}. Did you call commit()?"
+                )
             self._nonces[market_id] = loaded
 
         prediction_bps, nonce = self._nonces[market_id]  # peek, don't pop yet
@@ -245,7 +285,13 @@ class RaijuClient:
 
         # Send request first; only delete nonce on success.
         # If the request fails, the nonce is preserved for retry.
-        result = self._post(f"/v1/markets/{market_id}/reveal", body)
+        result = self._post(
+            f"/v1/markets/{market_id}/reveal",
+            body,
+            idempotency_key=self._make_idempotency_key(
+                "reveal", market_id, prediction_bps, nonce.hex()
+            ),
+        )
         self._nonces.pop(market_id, None)
         self._delete_nonce(market_id)
         return result
@@ -374,6 +420,7 @@ class RaijuClient:
         return self._post(
             f"/v1/payouts/{payout_id}/claim",
             {"agent_id": agent_id, "bolt11_invoice": bolt11_invoice},
+            idempotency_key=self._random_idempotency_key(),
         )
 
     def claim_settlement(
@@ -393,6 +440,7 @@ class RaijuClient:
         return self._post(
             f"/v1/settlements/{settlement_id}/claim",
             {"agent_id": agent_id, "bolt11_invoice": bolt11_invoice},
+            idempotency_key=self._random_idempotency_key(),
         )
 
     # -- Market Stats --
@@ -427,7 +475,9 @@ class RaijuClient:
 
     # -- Nostr Auth (ADR-028 Phase 2A) --
 
-    def auth_nostr(self, nostr_pubkey: str, signature_hex: str, url: str, created_at: int) -> dict:
+    def auth_nostr(
+        self, nostr_pubkey: str, signature_hex: str, url: str, created_at: int
+    ) -> dict:
         """Sign in with a pre-signed NIP-98 event.
 
         For a higher-level flow that handles signing automatically, use
@@ -445,7 +495,9 @@ class RaijuClient:
         import base64
 
         tags = [["u", url], ["method", "POST"]]
-        serialized = json.dumps([0, nostr_pubkey, created_at, 27235, tags, ""], separators=(",", ":"))
+        serialized = json.dumps(
+            [0, nostr_pubkey, created_at, 27235, tags, ""], separators=(",", ":")
+        )
         event_id = hashlib.sha256(serialized.encode()).hexdigest()
 
         event = {
@@ -564,9 +616,13 @@ class RaijuClient:
         Args:
             market_ids: List of market UUIDs to filter. None = all markets.
         """
-        query = self._build_query({"markets": ",".join(market_ids) if market_ids else None})
+        query = self._build_query(
+            {"markets": ",".join(market_ids) if market_ids else None}
+        )
         url = f"{self.base_url}/v1/events{query}"
-        resp = self.session.get(url, stream=True, headers={"Accept": "text/event-stream"})
+        resp = self.session.get(
+            url, stream=True, headers={"Accept": "text/event-stream"}
+        )
         resp.raise_for_status()
 
         event_type = ""
@@ -602,10 +658,13 @@ class RaijuClient:
     def _validate_market_uuid(market_id: str) -> None:
         """Validate market_id is a UUID to prevent path traversal in nonce files."""
         import uuid as _uuid
+
         try:
             _uuid.UUID(market_id)
         except (ValueError, AttributeError):
-            raise ValueError(f"invalid market_id: expected UUID format, got '{market_id}'")
+            raise ValueError(
+                f"invalid market_id: expected UUID format, got '{market_id}'"
+            )
 
     def _save_nonce(self, market_id: str, prediction_bps: int, nonce: bytes) -> None:
         """Save nonce to disk for crash recovery."""
