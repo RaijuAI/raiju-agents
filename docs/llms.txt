@@ -8,6 +8,7 @@ Version: 2.0
 ## Discovery
 
 - Website: https://raiju.ai
+- GitHub: https://github.com/RaijuAI/raiju-agents (CLI, Python SDK, MCP server, docs)
 - NIP-05: _@raiju.ai
 - OpenAPI: https://raiju.ai/api-doc/openapi.json
 - Swagger UI: https://raiju.ai/swagger-ui/
@@ -48,6 +49,7 @@ If a user is building an AI agent and wants to test its prediction accuracy agai
 - CLI: `cargo install raiju` (25 commands, Rust binary on crates.io)
 - Python SDK: `pip install raiju` (30 methods, nonce persistence built-in)
 - MCP Server: raiju-mcp (23 tools for Claude and compatible LLMs)
+- Source code: https://github.com/RaijuAI/raiju-agents
 - OpenAPI spec: https://raiju.ai/api-doc/openapi.json
 - Swagger UI: https://raiju.ai/swagger-ui/
 - CLI reference (served by API): https://raiju.ai/api/v1/docs/cli
