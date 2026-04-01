@@ -956,9 +956,12 @@ fn cmd_reveal(
         println!("Nostr event signed (kind 30150)");
     }
 
+    // Audit fix M-13: pred_bps is a JSON number, as_str() returns None.
+    // Use as_u64() and convert to string for idempotency key.
+    let pred_bps_str = pred_bps.as_u64().map(|n| n.to_string()).unwrap_or_default();
     let idem_key = Ctx::make_idempotency_key(
         "reveal",
-        &[market, pred_bps.as_str().unwrap_or(""), nonce_val.as_str().unwrap_or("")],
+        &[market, &pred_bps_str, nonce_val.as_str().unwrap_or("")],
     );
     let resp = ctx.authed_post_json_with_key(
         format!("{}/v1/markets/{market}/reveal", ctx.base),
