@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import uuid
+import warnings
 
 import requests
 
@@ -43,6 +44,8 @@ class RaijuClient:
         os.makedirs(self._nonce_dir, exist_ok=True)
         # In-memory cache (populated from disk on reveal)
         self._nonces: dict[str, tuple[int, bytes]] = {}
+        # Track whether platform notices have been shown (print once per session)
+        self._notices_shown = False
 
     @staticmethod
     def _build_query(params: dict[str, object]) -> str:
@@ -50,8 +53,24 @@ class RaijuClient:
         parts = [f"{k}={v}" for k, v in params.items() if v is not None]
         return f"?{'&'.join(parts)}" if parts else ""
 
+    def _check_notices(self) -> None:
+        """Fetch and display platform notices once per client session."""
+        if self._notices_shown:
+            return
+        self._notices_shown = True
+        try:
+            status = self.session.get(f"{self.base_url}/v1/status", timeout=5).json()
+            for notice in status.get("notices", []):
+                msg = f"[{notice.get('type', 'notice')}] {notice.get('message', '')}"
+                if notice.get("starts_at"):
+                    msg += f" (starts: {notice['starts_at']})"
+                warnings.warn(msg, stacklevel=3)
+        except Exception:
+            pass  # Notices are best-effort, never block API calls
+
     def _get(self, path: str) -> dict:
         """Send a GET request and return the JSON response."""
+        self._check_notices()
         resp = self.session.get(f"{self.base_url}{path}")
         resp.raise_for_status()
         return resp.json()
@@ -71,6 +90,7 @@ class RaijuClient:
         idempotency_key: str | None = None,
     ) -> dict:
         """Send a POST request and return the JSON response."""
+        self._check_notices()
         headers = {"Idempotency-Key": idempotency_key or self._random_idempotency_key()}
         resp = self.session.post(f"{self.base_url}{path}", json=data, headers=headers)
         resp.raise_for_status()
@@ -87,8 +107,21 @@ class RaijuClient:
         return self._get(f"/v1/agents/{agent_id}/status")
 
     def server_status(self) -> dict:
-        """Get detailed server status (version, market counts, worker health)."""
+        """Get detailed server status (version, market counts, worker health).
+
+        The response includes a ``notices`` array with active platform notices
+        (beta disclaimer, scheduled maintenance). See ``notices()`` for direct access.
+        """
         return self._get("/v1/status")
+
+    def notices(self) -> list[dict]:
+        """Get active platform notices (beta, maintenance).
+
+        Returns a list of notice dicts with keys: type, message, severity,
+        and optionally starts_at, ends_at.
+        """
+        status = self.server_status()
+        return status.get("notices", [])
 
     def node_info(self) -> dict:
         """Get Lightning node connection info.

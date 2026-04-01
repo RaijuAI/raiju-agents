@@ -138,7 +138,15 @@ impl RaijuClient {
     #[allow(clippy::too_many_lines)]
     pub fn call_tool(&self, name: &str, args: &serde_json::Value) -> Result<serde_json::Value> {
         match name {
-            "raiju_health" => self.get("/v1/health"),
+            "raiju_health" => {
+                // Fetch /v1/status (superset of /v1/health) to include notices
+                let status = self.get("/v1/status")?;
+                Ok(serde_json::json!({
+                    "status": status["database"],
+                    "version": status["version"],
+                    "notices": status.get("notices").cloned().unwrap_or(serde_json::json!([])),
+                }))
+            }
             "raiju_node_info" => self.get("/v1/status"),
             "raiju_list_markets" => {
                 let mut params = Vec::new();
@@ -385,7 +393,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
     vec![
         tool_def(
             "raiju_health",
-            "Check Raiju server health and version",
+            "Check Raiju server health, version, and active notices (beta, maintenance)",
             serde_json::json!({
                 "type": "object", "properties": {}
             }),

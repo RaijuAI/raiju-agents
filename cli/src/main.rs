@@ -346,6 +346,26 @@ enum AdminCommands {
     },
 }
 
+/// Print platform notices (beta, maintenance) from /v1/status to stderr.
+/// Returns silently on any error (notices are best-effort, never block commands).
+fn print_notices(client: &reqwest::blocking::Client, base: &str) {
+    let Ok(resp) = client.get(format!("{base}/v1/status")).send() else { return };
+    let Ok(status) = resp.json::<serde_json::Value>() else { return };
+    if let Some(notices) = status["notices"].as_array() {
+        for notice in notices {
+            if let (Some(ntype), Some(msg)) = (notice["type"].as_str(), notice["message"].as_str())
+            {
+                let severity = notice["severity"].as_str().unwrap_or("info");
+                let prefix = if severity == "warning" { "WARNING" } else { "NOTICE" };
+                eprintln!("{prefix} [{ntype}] {msg}");
+                if let Some(starts) = notice["starts_at"].as_str() {
+                    eprintln!("  Starts: {starts}");
+                }
+            }
+        }
+    }
+}
+
 /// Shared HTTP context threaded through all command handlers.
 struct Ctx {
     client: reqwest::blocking::Client,
@@ -428,12 +448,29 @@ fn main() -> Result<()> {
         }),
     };
 
+    let is_health_or_info = matches!(cli.command, Commands::Health | Commands::Info);
+
     match cli.command {
         Commands::Health => {
+            // Fetch /v1/status (superset of /v1/health) to get notices in one request.
             let resp: serde_json::Value =
-                ctx.client.get(format!("{}/v1/health", ctx.base)).send()?.api_error()?.json()?;
-            println!("Status: {}", resp["status"]);
-            println!("Version: {}", resp["version"]);
+                ctx.client.get(format!("{}/v1/status", ctx.base)).send()?.api_error()?.json()?;
+            println!("Status: {}", resp["database"].as_str().unwrap_or("unknown"));
+            println!("Version: {}", resp["version"].as_str().unwrap_or("unknown"));
+            if let Some(notices) = resp["notices"].as_array() {
+                for notice in notices {
+                    if let (Some(ntype), Some(msg)) =
+                        (notice["type"].as_str(), notice["message"].as_str())
+                    {
+                        let sev = notice["severity"].as_str().unwrap_or("info");
+                        let prefix = if sev == "warning" { "WARNING" } else { "NOTICE" };
+                        eprintln!("{prefix} [{ntype}] {msg}");
+                        if let Some(starts) = notice["starts_at"].as_str() {
+                            eprintln!("  Starts: {starts}");
+                        }
+                    }
+                }
+            }
         }
 
         Commands::Info => {
@@ -461,6 +498,21 @@ fn main() -> Result<()> {
                 resp["total_markets"], resp["active_markets"]
             );
             println!("Agents:    {}", resp["total_agents"]);
+            // Print notices from the already-fetched /v1/status
+            if let Some(notices) = resp["notices"].as_array() {
+                for notice in notices {
+                    if let (Some(ntype), Some(msg)) =
+                        (notice["type"].as_str(), notice["message"].as_str())
+                    {
+                        let sev = notice["severity"].as_str().unwrap_or("info");
+                        let prefix = if sev == "warning" { "WARNING" } else { "NOTICE" };
+                        eprintln!("{prefix} [{ntype}] {msg}");
+                        if let Some(starts) = notice["starts_at"].as_str() {
+                            eprintln!("  Starts: {starts}");
+                        }
+                    }
+                }
+            }
         }
 
         Commands::RegisterOperator { name, email } => {
@@ -742,6 +794,12 @@ fn main() -> Result<()> {
         }
 
         Commands::Admin { action } => cmd_admin(&ctx, action)?,
+    }
+
+    // Print platform notices after any command (best-effort, never blocks).
+    // Health and Info already print notices inline; this catches deposit, trade, etc.
+    if !is_health_or_info {
+        print_notices(&ctx.client, &ctx.base);
     }
 
     Ok(())
