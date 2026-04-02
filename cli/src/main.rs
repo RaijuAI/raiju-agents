@@ -487,6 +487,9 @@ fn main() -> Result<()> {
             if let Some(port) = resp["lightning_p2p_port"].as_u64() {
                 println!("P2P Port:  {port}");
             }
+            if let Some(ch) = resp["lightning_channels"].as_u64() {
+                println!("Channels:  {ch}");
+            }
             if let Some(uri) = resp["lightning_node_uri"].as_str() {
                 println!("Node URI:  {uri}");
                 println!();
