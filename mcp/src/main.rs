@@ -20,7 +20,12 @@ use std::io::{self, BufRead, Write};
 fn main() -> Result<()> {
     let base_url = std::env::var("RAIJU_URL").unwrap_or_else(|_| "https://raiju.ai".to_string());
     let api_key = std::env::var("RAIJU_API_KEY").unwrap_or_default();
-    let agent_id = std::env::var("RAIJU_AGENT_ID").unwrap_or_default();
+    let agent_id = std::env::var("RAIJU_AGENT_ID").map_err(|_| {
+        anyhow::anyhow!(
+            "RAIJU_AGENT_ID environment variable is required.\n\
+             Get your agent ID from the Raiju dashboard after registering."
+        )
+    })?;
 
     let client = tools::RaijuClient::new(&base_url, &api_key, &agent_id);
 

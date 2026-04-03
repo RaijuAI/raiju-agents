@@ -14,6 +14,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Domain separator for commitment hashes (ADR-004).
 const DOMAIN_SEPARATOR: &[u8] = b"raiju-v1:";
@@ -438,15 +439,25 @@ impl Ctx {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let ctx = Ctx {
-        client: reqwest::blocking::Client::new(),
-        base: cli.url.trim_end_matches('/').to_string(),
-        auth: cli.api_key.as_ref().map(|key| {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("failed to build HTTP client")?;
+
+    let auth = cli
+        .api_key
+        .as_ref()
+        .map(|key| {
             let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert("Authorization", format!("Bearer {key}").parse().unwrap());
-            headers
-        }),
-    };
+            let header_value = format!("Bearer {key}")
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid API key: contains invalid characters"))?;
+            headers.insert("Authorization", header_value);
+            Ok::<_, anyhow::Error>(headers)
+        })
+        .transpose()?;
+
+    let ctx = Ctx { client, base: cli.url.trim_end_matches('/').to_string(), auth };
 
     let is_health_or_info = matches!(cli.command, Commands::Health | Commands::Info);
 

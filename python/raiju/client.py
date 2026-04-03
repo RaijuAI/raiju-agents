@@ -19,6 +19,12 @@ import warnings
 import requests
 
 
+class RaijuError(Exception):
+    """Base exception for Raiju client errors."""
+
+    pass
+
+
 class RaijuClient:
     """Client for the Raiju prediction arena API."""
 
@@ -71,9 +77,12 @@ class RaijuClient:
     def _get(self, path: str) -> dict:
         """Send a GET request and return the JSON response."""
         self._check_notices()
-        resp = self.session.get(f"{self.base_url}{path}")
+        resp = self.session.get(f"{self.base_url}{path}", timeout=30)
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except json.JSONDecodeError as e:
+            raise RaijuError(f"Server returned invalid JSON: {resp.text[:200]}") from e
 
     def _make_idempotency_key(self, namespace: str, *parts: object) -> str:
         material = ":".join([namespace, *[str(part) for part in parts]])
@@ -92,9 +101,14 @@ class RaijuClient:
         """Send a POST request and return the JSON response."""
         self._check_notices()
         headers = {"Idempotency-Key": idempotency_key or self._random_idempotency_key()}
-        resp = self.session.post(f"{self.base_url}{path}", json=data, headers=headers)
+        resp = self.session.post(
+            f"{self.base_url}{path}", json=data, headers=headers, timeout=30
+        )
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except json.JSONDecodeError as e:
+            raise RaijuError(f"Server returned invalid JSON: {resp.text[:200]}") from e
 
     # -- Health --
 
