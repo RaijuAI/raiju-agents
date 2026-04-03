@@ -59,6 +59,18 @@ class RaijuClient:
         parts = [f"{k}={v}" for k, v in params.items() if v is not None]
         return f"?{'&'.join(parts)}" if parts else ""
 
+    def _raise_for_api_error(self, resp: requests.Response) -> None:
+        """Check for HTTP errors and raise RaijuError with the server's error message."""
+        if resp.status_code >= 400:
+            # Try to extract structured error from JSON body
+            try:
+                body = resp.json()
+                error_msg = body.get("error", resp.text[:200])
+                code = body.get("code", "unknown")
+                raise RaijuError(f"[{code}] {resp.status_code} {resp.reason}: {error_msg}")
+            except json.JSONDecodeError:
+                raise RaijuError(f"{resp.status_code} {resp.reason}: {resp.text[:200]}")
+
     def _check_notices(self) -> None:
         """Fetch and display platform notices once per client session."""
         if self._notices_shown:
@@ -78,7 +90,7 @@ class RaijuClient:
         """Send a GET request and return the JSON response."""
         self._check_notices()
         resp = self.session.get(f"{self.base_url}{path}", timeout=30)
-        resp.raise_for_status()
+        self._raise_for_api_error(resp)
         try:
             return resp.json()
         except json.JSONDecodeError as e:
@@ -104,7 +116,7 @@ class RaijuClient:
         resp = self.session.post(
             f"{self.base_url}{path}", json=data, headers=headers, timeout=30
         )
-        resp.raise_for_status()
+        self._raise_for_api_error(resp)
         try:
             return resp.json()
         except json.JSONDecodeError as e:
