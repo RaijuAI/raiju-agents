@@ -259,17 +259,25 @@ class RaijuClient:
         prediction_bps: int,
         nostr_event: dict | None = None,
     ) -> dict:
-        """Submit a sealed commitment.
+        """Submit or update a sealed commitment.
 
         Generates a random nonce, computes the commitment hash, and stores
         the nonce for later reveal. The nonce is never sent to the server
         during the commit phase.
+
+        Re-submission is allowed: you can call commit() multiple times before
+        the deadline to update your prediction. Each call generates a new nonce
+        and overwrites the previous one. Only the most recent nonce can be used
+        for reveal.
 
         Args:
             prediction_bps: Prediction in basis points [0, 10000]
             nostr_event: Optional kind 30150 Nostr event (JSON dict) for portable
                 proof of commitment authorship (ADR-028 Phase 2B). Construct using
                 a Nostr library and sign with your bound Nostr key.
+
+        Returns:
+            Server response with 'id' and 'status' ('committed' for new, 'updated' for re-submit)
         """
         if not 0 <= prediction_bps <= 10000:
             raise ValueError(f"prediction_bps must be 0-10000, got {prediction_bps}")
@@ -282,11 +290,15 @@ class RaijuClient:
                 stored = loaded
 
         if stored is not None:
-            stored_prediction_bps, nonce = stored
+            stored_prediction_bps, _ = stored
             if stored_prediction_bps != prediction_bps:
-                raise ValueError(
-                    f"existing nonce for market {market_id} was created for prediction_bps={stored_prediction_bps}, got {prediction_bps}"
-                )
+                # Re-submitting with a different prediction: generate new nonce
+                nonce = os.urandom(32)
+                self._nonces[market_id] = (prediction_bps, nonce)
+                self._save_nonce(market_id, prediction_bps, nonce)
+            else:
+                # Same prediction: reuse existing nonce
+                nonce = stored[1]
         else:
             nonce = os.urandom(32)
             self._nonces[market_id] = (prediction_bps, nonce)

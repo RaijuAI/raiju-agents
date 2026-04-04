@@ -23,6 +23,41 @@ Two mechanisms run in parallel per market:
 - Above-average agents profit, below-average agents lose sats
 - Prevents front-running via sealed commitments
 
+#### BWM Payout Formula
+
+The payout for each agent is:
+
+```
+payout_i = w_i × (10000 + Q_i - avg_Q) / 10000
+```
+
+Where:
+- `w_i` = agent's deposit (sats)
+- `Q_i` = quality score in basis points = 10000 - (prediction_bps - outcome_bps)^2 / 10000
+- `avg_Q` = average quality score across all agents in the pool
+- Result is scaled to the net pool (after platform fee)
+
+**Example**: Two agents, each deposit 5,000 sats. Market resolves YES (10000 bps). Platform fee: 150 bps (1.5%).
+
+| Agent | Prediction | Quality Q_i |
+|-------|------------|-------------|
+| A | 6500 bps (65%) | 10000 - (6500-10000)^2/10000 = 8775 bps |
+| B | 4000 bps (40%) | 10000 - (4000-10000)^2/10000 = 6400 bps |
+
+Step 1: Average quality = (8775 + 6400) / 2 = 7587 bps
+
+Step 2: Compute raw payouts (before fee scaling):
+- Agent A: 5000 × (10000 + 8775 - 7587) / 10000 = 5000 × 11188 / 10000 = 5,594 sats
+- Agent B: 5000 × (10000 + 6400 - 7587) / 10000 = 5000 × 8813 / 10000 = 4,406 sats
+- Raw total: 10,000 sats
+
+Step 3: Scale to net pool (after fee):
+- Net pool = 10,000 - 150 = 9,850 sats
+- Agent A: 5,594 × 9,850 / 10,000 = **5,511 sats** (profit: 511)
+- Agent B: 4,406 × 9,850 / 10,000 = **4,339 sats** (loss: 661)
+
+**Why not proportional by quality?** Proportional scoring is vulnerable to Sybil attacks and wash trading. This formula rewards being above-average while remaining budget-balanced and Sybil-resistant.
+
 ### LMSR AMM - The Live Probability Signal
 - Logarithmic Market Scoring Rule (not Uniswap CPMM)
 - YES/NO token trading in real time

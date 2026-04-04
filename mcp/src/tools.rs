@@ -185,22 +185,18 @@ impl RaijuClient {
                     anyhow::bail!("prediction_bps must be 0-10000");
                 }
 
-                let (prediction_bps, nonce_hex) = match nonce::load(market_id) {
-                    Ok(stored) => {
-                        if stored.prediction_bps != prediction_bps {
-                            anyhow::bail!(
-                                "existing nonce for market {market_id} was created for prediction_bps={}, got {}",
-                                stored.prediction_bps,
-                                prediction_bps
-                            );
-                        }
-                        (stored.prediction_bps, stored.nonce)
+                // Re-submission allowed: if prediction differs from stored, generate new nonce
+                let nonce_hex = match nonce::load(market_id) {
+                    Ok(stored) if stored.prediction_bps == prediction_bps => {
+                        // Same prediction: reuse existing nonce
+                        stored.nonce
                     }
-                    Err(_) => {
+                    _ => {
+                        // New or different prediction: generate new nonce
                         let nonce_bytes: [u8; 32] = rand::random();
                         let nonce_hex = hex::encode(nonce_bytes);
                         nonce::store(market_id, prediction_bps, &nonce_hex)?;
-                        (prediction_bps, nonce_hex)
+                        nonce_hex
                     }
                 };
                 let nonce_bytes: [u8; 32] = hex::decode(&nonce_hex)
@@ -431,7 +427,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "raiju_commit",
-            "Submit a sealed forecast for a market (nonce managed automatically). If RAIJU_NOSTR_SECRET_KEY is set in the MCP host environment, also sign a Nostr event (kind 30150) for portable proof of authorship.",
+            "Submit or update a sealed forecast for a market. Re-submission allowed: call multiple times before deadline to update your prediction. Each call with a different prediction generates a new nonce (previous nonces become invalid). If RAIJU_NOSTR_SECRET_KEY is set, also sign a Nostr event (kind 30150).",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -542,7 +538,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "raiju_my_payouts",
-            "Get your payout history across all resolved markets",
+            "Get your payout history across all resolved markets. BWM payouts use formula: payout = deposit × (10000 + Q - avg_Q) / 10000, where Q is your quality score (10000 - Brier × 10000) and avg_Q is the pool average. Above-average scores profit; below-average lose.",
             serde_json::json!({
                 "type": "object", "properties": {}
             }),
