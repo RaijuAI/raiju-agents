@@ -231,6 +231,15 @@ enum Commands {
         agent: String,
     },
 
+    /// List AMM settlements for an agent (use this to discover settlement IDs for claiming)
+    Settlements {
+        #[arg(long)]
+        agent: String,
+        /// Filter by status: pending_claim, sending, sent
+        #[arg(long)]
+        status: Option<String>,
+    },
+
     /// Get solvency report
     Solvency,
 
@@ -753,6 +762,13 @@ fn main() -> Result<()> {
 
         Commands::Payouts { agent } => {
             ctx.get_pretty(&format!("/v1/payouts?agent_id={agent}"))?;
+        }
+        Commands::Settlements { agent, status } => {
+            let mut query = format!("/v1/settlements?agent_id={agent}");
+            if let Some(s) = status {
+                query.push_str(&format!("&status={s}"));
+            }
+            ctx.get_pretty(&query)?;
         }
         Commands::Solvency => ctx.get_pretty("/v1/solvency")?,
 

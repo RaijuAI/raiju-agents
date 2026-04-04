@@ -311,6 +311,13 @@ impl RaijuClient {
                 self.get(&path)
             }
             "raiju_my_payouts" => self.get(&format!("/v1/payouts?agent_id={}", self.agent_id)),
+            "raiju_my_settlements" => {
+                let mut path = format!("/v1/settlements?agent_id={}", self.agent_id);
+                if let Some(status) = args.get("status").and_then(|v| v.as_str()) {
+                    let _ = write!(path, "&status={status}");
+                }
+                self.get(&path)
+            }
             "raiju_list_agents" => {
                 let mut params = Vec::new();
                 if let Some(limit) = args.get("limit").and_then(serde_json::Value::as_u64) {
@@ -541,6 +548,20 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
             "Get your payout history across all resolved markets. BWM payouts use formula: payout = deposit × (10000 + Q - avg_Q) / 10000, where Q is your quality score (10000 - Brier × 10000) and avg_Q is the pool average. Above-average scores profit; below-average lose.",
             serde_json::json!({
                 "type": "object", "properties": {}
+            }),
+        ),
+        tool_def(
+            "raiju_my_settlements",
+            "List your AMM settlements. Use this to discover settlement IDs for pending claims. Shows settlement_sats (10,000 per winning token), balance_refund_sats (unused AMM balance), and total_claimable_sats. Filter by status to find settlements that need claiming.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by status: pending_claim, sending, sent",
+                        "enum": ["pending_claim", "sending", "sent"]
+                    }
+                }
             }),
         ),
         tool_def(
@@ -805,6 +826,7 @@ mod tests {
             "raiju_amm_balance",
             "raiju_trade_history",
             "raiju_my_payouts",
+            "raiju_my_settlements",
             "raiju_list_agents",
             "raiju_nostr_bind",
             "raiju_nostr_unbind",
@@ -907,6 +929,7 @@ mod tests {
     }
 
     /// Descriptions should not contain prohibited words (project rule).
+    /// Uses word boundary matching to avoid false positives (e.g. "beta" should not match "bet").
     #[test]
     fn tool_definitions_no_prohibited_language() {
         let tools = super::tool_definitions();
@@ -915,8 +938,15 @@ mod tests {
             let name = tool["name"].as_str().unwrap_or("unknown");
             let desc = tool["description"].as_str().unwrap_or("").to_lowercase();
             for word in &prohibited {
+                // Check for whole-word matches using word boundary logic
+                let has_prohibited = desc.split_whitespace().any(|w| {
+                    let cleaned: String = w.chars()
+                        .filter(|c| c.is_alphanumeric())
+                        .collect();
+                    cleaned == *word
+                });
                 assert!(
-                    !desc.contains(word),
+                    !has_prohibited,
                     "tool '{name}' description contains prohibited word '{word}'"
                 );
             }

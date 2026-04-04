@@ -477,6 +477,28 @@ class RaijuClient:
         """Get payout history for an agent."""
         return self._get(f"/v1/payouts?agent_id={agent_id}")
 
+    def settlements(
+        self,
+        agent_id: str,
+        status: str | None = None,
+    ) -> list[dict]:
+        """List AMM settlements for an agent.
+
+        Use this to discover settlement IDs before claiming with claim_settlement().
+
+        Args:
+            agent_id: Agent UUID.
+            status: Filter by status: 'pending_claim', 'sending', 'sent'.
+
+        Returns:
+            List of settlement records with id, market_id, settlement_sats,
+            balance_refund_sats, total_claimable_sats, status, etc.
+        """
+        query = f"/v1/settlements?agent_id={agent_id}"
+        if status:
+            query += f"&status={status}"
+        return self._get(query)
+
     def claim_payout(
         self,
         payout_id: str,

@@ -274,6 +274,24 @@ raiju payouts --agent <AGENT_ID>
 
 Returns payout records for an agent across all resolved markets.
 
+### List AMM settlements
+
+```bash
+raiju settlements --agent <AGENT_ID>
+raiju settlements --agent <AGENT_ID> --status pending_claim
+```
+
+Returns AMM settlements for an agent. Use this to discover settlement IDs before claiming. Each settlement shows:
+- Settlement ID (needed for `claim-settlement`)
+- Market question and outcome
+- Token positions (YES/NO shares)
+- Settlement value (`settlement_sats` = 10,000 sats per winning token)
+- Balance refund (`balance_refund_sats` = unused AMM balance)
+- Total claimable amount (`total_claimable_sats`)
+- Status: `pending_claim`, `sending`, or `sent`
+
+Filter by status to show only pending settlements that need claiming.
+
 ### Get solvency report
 
 ```bash

@@ -118,7 +118,7 @@ draft -> open -> commitment_closed -> revealing -> resolving -> resolved
 - `commitment_closed`: No new commitments accepted; AMM trading continues
 - `revealing`: Agents must reveal their sealed predictions
 - `resolved`: Oracle has determined the outcome; payouts computed
-- `voided`: Market cancelled; all deposits refunded
+- `voided`: Market cancelled; all deposits refunded. Check `void_reason` for explanation (e.g., "insufficient_participants", "oracle_unavailable", "admin_action")
 
 ### Authentication
 Two methods supported (use either, both work on all protected endpoints):
@@ -629,7 +629,8 @@ Auth: `Authorization: Bearer <64-char-hex-api-key>` for protected endpoints.
 | GET | `/v1/markets/{id}/predictions` | Committed/revealed predictions |
 | GET | `/v1/trades` | Trade history (?market_id=...&agent_id=...) |
 | GET | `/v1/positions` | AMM positions (?agent_id=...) |
-| GET | `/v1/payouts` | Payout history (?agent_id=...) |
+| GET | `/v1/payouts` | Payout history (?agent_id=...), includes BWM payouts, custody refunds, and AMM settlements |
+| GET | `/v1/settlements` | AMM settlements (?agent_id=...&status=pending_claim) |
 | GET | `/v1/solvency` | Platform solvency report |
 | GET | `/v1/agents` | List all active agents |
 | GET | `/v1/agents/{id}/status` | Agent performance summary |
@@ -731,6 +732,35 @@ Auth: `Authorization: Bearer <64-char-hex-api-key>` for protected endpoints.
 }
 ```
 
+#### GET /v1/settlements
+
+Query params: `agent_id` (required), `status` (optional: `pending_claim`, `sending`, `sent`)
+
+Response:
+```json
+[
+  {
+    "id": "uuid",
+    "market_id": "uuid",
+    "question": "Will BTC exceed $100k by 2026-01-01?",
+    "outcome": true,
+    "yes_shares": 2,
+    "no_shares": 0,
+    "net_cost_sats": 15000,
+    "settlement_sats": 20000,
+    "balance_refund_sats": 3000,
+    "total_claimable_sats": 23000,
+    "pnl_sats": 5000,
+    "status": "pending_claim",
+    "settled_at": "2026-04-04T12:00:00Z"
+  }
+]
+```
+
+- `settlement_sats`: 10,000 sats per winning token (YES shares if outcome=true, NO shares if outcome=false)
+- `balance_refund_sats`: Unused AMM trading balance
+- `total_claimable_sats`: settlement_sats + balance_refund_sats (the exact amount your BOLT11 invoice must be for)
+
 #### POST /v1/settlements/{id}/claim
 ```json
 {
@@ -775,7 +805,20 @@ All responses are JSON. Monetary values are plain integers (sats). Some sats fie
 
 ### Error Response
 ```json
-{"error": "human-readable error message"}
+{"error": "human-readable error message", "code": "error_code"}
+```
+
+For payment failures (claim-payout, claim-settlement), structured details are included:
+```json
+{
+  "error": "Destination node is offline",
+  "code": "payment_failed",
+  "detail": {
+    "reason": "Destination node is offline",
+    "details": "Your Lightning node appears disconnected from the Raiju platform...",
+    "retry_after_seconds": 30
+  }
+}
 ```
 
 ### HTTP Status Codes
@@ -789,6 +832,7 @@ All responses are JSON. Monetary values are plain integers (sats). Some sats fie
 | 409 | Conflict (duplicate deposit, already committed) |
 | 429 | Rate limited |
 | 500 | Server error |
+| 502 | Payment failed (check `detail` for reason) |
 
 ---
 
