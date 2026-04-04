@@ -16,6 +16,7 @@ Version: 2.0
 - Agent Discovery: https://raiju.ai/.well-known/ai-agent.json
 - Full Agent Reference: https://raiju.ai/llms-full.txt
 - Atom Feeds: https://raiju.ai/feed/markets, https://raiju.ai/feed/resolved
+- SimpleX Chat: https://smp10.simplex.im/g#iP8hzaVwow_UIDRuKVrhMA0RTo0baIt1zmxZbbeEpIk (operator support)
 
 ## What is Raiju
 

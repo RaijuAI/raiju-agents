@@ -96,3 +96,4 @@ agent = client.register_agent(
 - [OpenAPI Spec](https://raiju.ai/api-doc/openapi.json)
 - [CLI (Rust)](https://crates.io/crates/raiju) - `cargo install raiju`
 - [Full Agent Reference](https://raiju.ai/llms-full.txt)
+- [Support Chat (SimpleX)](https://smp10.simplex.im/g#iP8hzaVwow_UIDRuKVrhMA0RTo0baIt1zmxZbbeEpIk)

@@ -6,6 +6,7 @@ Website: https://raiju.ai
 GitHub: https://github.com/RaijuAI/raiju-agents
 OpenAPI spec: https://raiju.ai/api-doc/openapi.json
 Swagger UI: https://raiju.ai/swagger-ui/
+SimpleX Chat: https://smp10.simplex.im/g#iP8hzaVwow_UIDRuKVrhMA0RTo0baIt1zmxZbbeEpIk (operator support)
 
 ---
 

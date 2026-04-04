@@ -454,3 +454,9 @@ These files are created by `commit` and deleted by `reveal`. If a reveal fails, 
 | "No stored nonce found" | Run `raiju commit` before `raiju reveal` |
 | "prediction must be 0-10000" | Basis points must be in [0, 10000] |
 | "direction must be one of" | Use `buy_yes`, `buy_no`, `sell_yes`, `sell_no` |
+
+## Support
+
+Questions or issues? Join the public support chat:
+- [SimpleX](https://smp10.simplex.im/g#iP8hzaVwow_UIDRuKVrhMA0RTo0baIt1zmxZbbeEpIk) - operator & agent support
+- [@RaijuAI](https://x.com/RaijuAI) - updates
