@@ -265,6 +265,12 @@ enum Commands {
         bolt11: String,
     },
 
+    /// List all pending claims (BWM payouts + AMM settlements) for an agent
+    ClaimAll {
+        #[arg(long)]
+        agent: String,
+    },
+
     /// Sign in with Nostr (auto-creates account if new, ADR-028)
     AuthNostr {
         /// Path to a file containing a 64-character hex-encoded Nostr secret key.
@@ -561,6 +567,7 @@ fn main() -> Result<()> {
         }
 
         Commands::RegisterAgent { operator, name, address, description, repo_url } => {
+            let has_address = address.is_some();
             let mut body = serde_json::json!({
                 "operator_id": operator,
                 "display_name": name,
@@ -583,6 +590,12 @@ fn main() -> Result<()> {
             println!("Agent ID: {}", resp["id"]);
             println!("API Key: {}", resp["api_key"]);
             println!("\nSave this API key. It will not be shown again.");
+            if !has_address {
+                eprintln!(
+                    "\nWarning: No lightning address set. Payouts will require manual claim."
+                );
+                eprintln!("Set one with: raiju update-agent --address <your@ln.address>");
+            }
         }
 
         Commands::Markets { category } => {
@@ -794,6 +807,68 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&resp)?);
         }
 
+        Commands::ClaimAll { agent } => {
+            let payouts: Vec<serde_json::Value> = ctx
+                .client
+                .get(format!("{}/v1/payouts?agent_id={agent}&status=pending_claim", ctx.base))
+                .headers(ctx.auth.clone().unwrap_or_default())
+                .send()?
+                .api_error()?
+                .json()?;
+
+            let settlements: Vec<serde_json::Value> = ctx
+                .client
+                .get(format!("{}/v1/settlements?agent_id={agent}&status=pending_claim", ctx.base))
+                .headers(ctx.auth.clone().unwrap_or_default())
+                .send()?
+                .api_error()?
+                .json()?;
+
+            if payouts.is_empty() && settlements.is_empty() {
+                println!("No pending claims for agent {agent}.");
+            } else {
+                let mut total = 0i64;
+                if !payouts.is_empty() {
+                    println!("BWM Payouts ({}):", payouts.len());
+                    println!("  {:<38} {:>10}", "ID", "Amount");
+                    for p in &payouts {
+                        let id = p["id"].as_str().unwrap_or("?");
+                        let sats = p["payout_sats"].as_i64().unwrap_or(0);
+                        total += sats;
+                        println!("  {:<38} {:>10} sats", id, sats);
+                    }
+                }
+                if !settlements.is_empty() {
+                    println!("AMM Settlements ({}):", settlements.len());
+                    println!("  {:<38} {:>10}", "ID", "Amount");
+                    for s in &settlements {
+                        let id = s["id"].as_str().unwrap_or("?");
+                        let sats = s["total_claimable_sats"].as_i64().unwrap_or(0);
+                        total += sats;
+                        println!("  {:<38} {:>10} sats", id, sats);
+                    }
+                }
+                println!("\nTotal claimable: {} sats", total);
+                println!("\nTo claim, generate a BOLT11 invoice for each amount and run:");
+                for p in &payouts {
+                    let id = p["id"].as_str().unwrap_or("?");
+                    let sats = p["payout_sats"].as_i64().unwrap_or(0);
+                    println!(
+                        "  raiju claim-payout --payout {} --agent {} --bolt11 <invoice_for_{}_sats>",
+                        id, agent, sats
+                    );
+                }
+                for s in &settlements {
+                    let id = s["id"].as_str().unwrap_or("?");
+                    let sats = s["total_claimable_sats"].as_i64().unwrap_or(0);
+                    println!(
+                        "  raiju claim-settlement --settlement {} --agent {} --bolt11 <invoice_for_{}_sats>",
+                        id, agent, sats
+                    );
+                }
+            }
+        }
+
         Commands::AuthNostr { secret_key_file } => {
             cmd_auth_nostr(&ctx, secret_key_file.as_ref())?;
         }
@@ -930,9 +1005,7 @@ fn cmd_commit(
         anyhow::bail!("prediction must be 0-{MAX_PREDICTION_BPS} basis points");
     }
 
-    let nonce_dir = nonce_dir()?;
-    std::fs::create_dir_all(&nonce_dir)?;
-    let nonce_file = nonce_dir.join(format!("{market}.json"));
+    let nonce_file = nonce_path(agent, market)?;
 
     let (prediction, nonce_hex) = if nonce_file.exists() {
         let existing: serde_json::Value =
@@ -1011,7 +1084,7 @@ fn cmd_reveal(
     nostr_secret_key_file: Option<&PathBuf>,
 ) -> Result<()> {
     validate_market_uuid(market)?;
-    let nonce_file = nonce_dir()?.join(format!("{market}.json"));
+    let nonce_file = nonce_path(agent, market)?;
     let data: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&nonce_file)
             .context("No stored nonce found. Did you run 'raiju commit' first?")?,
@@ -1319,9 +1392,14 @@ fn cmd_admin_seed_templates(ctx: &Ctx, month: &str, operator: &str) -> Result<()
     Ok(())
 }
 
-fn nonce_dir() -> Result<PathBuf> {
+/// Returns the nonce file path for an agent's market commitment.
+/// Path: ~/.raiju/nonces/<AGENT_ID>/<MARKET_ID>.json
+/// Agent-namespaced to prevent collisions when running multiple agents.
+fn nonce_path(agent_id: &str, market_id: &str) -> Result<PathBuf> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    Ok(PathBuf::from(home).join(".raiju").join("nonces"))
+    let dir = PathBuf::from(home).join(".raiju").join("nonces").join(agent_id);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join(format!("{market_id}.json")))
 }
 
 /// Extension trait to add `error_for_status` with readable error messages.

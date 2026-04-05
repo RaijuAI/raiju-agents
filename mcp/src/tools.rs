@@ -186,7 +186,7 @@ impl RaijuClient {
                 }
 
                 // Re-submission allowed: if prediction differs from stored, generate new nonce
-                let nonce_hex = match nonce::load(market_id) {
+                let nonce_hex = match nonce::load(&self.agent_id, market_id) {
                     Ok(stored) if stored.prediction_bps == prediction_bps => {
                         // Same prediction: reuse existing nonce
                         stored.nonce
@@ -195,7 +195,7 @@ impl RaijuClient {
                         // New or different prediction: generate new nonce
                         let nonce_bytes: [u8; 32] = rand::random();
                         let nonce_hex = hex::encode(nonce_bytes);
-                        nonce::store(market_id, prediction_bps, &nonce_hex)?;
+                        nonce::store(&self.agent_id, market_id, prediction_bps, &nonce_hex)?;
                         nonce_hex
                     }
                 };
@@ -232,7 +232,7 @@ impl RaijuClient {
             }
             "raiju_reveal" => {
                 let market_id = args["market_id"].as_str().context("market_id required")?;
-                let stored = nonce::load(market_id)?;
+                let stored = nonce::load(&self.agent_id, market_id)?;
 
                 let mut body = serde_json::json!({
                     "agent_id": self.agent_id,
@@ -261,7 +261,7 @@ impl RaijuClient {
 
                 // Clean up nonce on success
                 if result.is_ok() {
-                    let _ = nonce::remove(market_id);
+                    let _ = nonce::remove(&self.agent_id, market_id);
                 }
                 result
             }
@@ -940,9 +940,7 @@ mod tests {
             for word in &prohibited {
                 // Check for whole-word matches using word boundary logic
                 let has_prohibited = desc.split_whitespace().any(|w| {
-                    let cleaned: String = w.chars()
-                        .filter(|c| c.is_alphanumeric())
-                        .collect();
+                    let cleaned: String = w.chars().filter(|c| c.is_alphanumeric()).collect();
                     cleaned == *word
                 });
                 assert!(
@@ -1049,27 +1047,54 @@ mod tests {
     }
 
     #[test]
-    fn test_audit_commit_retry_preserves_original_nonce() {
+    fn test_audit_commit_retry_same_prediction_preserves_nonce() {
         with_temp_home(|| {
-            let client = super::RaijuClient::new("http://127.0.0.1:1", "", "agent-1");
+            let agent_id = "11111111-1111-1111-1111-111111111111";
+            let client = super::RaijuClient::new("http://127.0.0.1:1", "", agent_id);
             let market_id = "550e8400-e29b-41d4-a716-446655440099";
 
             let first = serde_json::json!({"market_id": market_id, "prediction_bps": 5000});
-            let second = serde_json::json!({"market_id": market_id, "prediction_bps": 7000});
+            let retry = serde_json::json!({"market_id": market_id, "prediction_bps": 5000});
 
             let result1 = client.call_tool("raiju_commit", &first);
             assert!(result1.is_err());
-            let stored1 = crate::nonce::load(market_id).unwrap();
+            let stored1 = crate::nonce::load(agent_id, market_id).unwrap();
 
-            let result2 = client.call_tool("raiju_commit", &second);
+            let result2 = client.call_tool("raiju_commit", &retry);
             assert!(result2.is_err());
-            let stored2 = crate::nonce::load(market_id).unwrap();
+            let stored2 = crate::nonce::load(agent_id, market_id).unwrap();
 
             assert_eq!(
                 stored2.prediction_bps, stored1.prediction_bps,
-                "retry must preserve the original nonce payload until commit success is known"
+                "same-prediction retry must preserve the original nonce"
             );
             assert_eq!(stored2.nonce, stored1.nonce);
+        });
+    }
+
+    #[test]
+    fn test_commit_different_prediction_generates_new_nonce() {
+        with_temp_home(|| {
+            let agent_id = "11111111-1111-1111-1111-111111111111";
+            let client = super::RaijuClient::new("http://127.0.0.1:1", "", agent_id);
+            let market_id = "550e8400-e29b-41d4-a716-446655440099";
+
+            let first = serde_json::json!({"market_id": market_id, "prediction_bps": 5000});
+            let updated = serde_json::json!({"market_id": market_id, "prediction_bps": 7000});
+
+            let result1 = client.call_tool("raiju_commit", &first);
+            assert!(result1.is_err());
+            let stored1 = crate::nonce::load(agent_id, market_id).unwrap();
+
+            let result2 = client.call_tool("raiju_commit", &updated);
+            assert!(result2.is_err());
+            let stored2 = crate::nonce::load(agent_id, market_id).unwrap();
+
+            assert_eq!(stored2.prediction_bps, 7000, "updated prediction must be stored");
+            assert_ne!(
+                stored2.nonce, stored1.nonce,
+                "different prediction must generate new nonce"
+            );
         });
     }
 

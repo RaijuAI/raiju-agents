@@ -61,26 +61,30 @@ def test_reveal_without_commit():
     """Verify reveal fails without a stored nonce."""
     client = RaijuClient(api_key="test")
     with pytest.raises(ValueError, match="No stored nonce"):
-        client.reveal("nonexistent-market", "agent")
+        client.reveal(
+            "550e8400-e29b-41d4-a716-446655440099",
+            "11111111-1111-1111-1111-111111111111",
+        )
 
 
 def test_nonce_storage_per_market():
-    """Verify nonces are stored separately per market."""
+    """Verify nonces are stored separately per (agent, market) key."""
     client = RaijuClient(api_key="test")
-    client._nonces["m1"] = (5000, os.urandom(32))
-    client._nonces["m2"] = (7000, os.urandom(32))
+    client._nonces[("agent-1", "m1")] = (5000, os.urandom(32))
+    client._nonces[("agent-1", "m2")] = (7000, os.urandom(32))
     assert len(client._nonces) == 2
-    assert client._nonces["m1"][0] == 5000
-    assert client._nonces["m2"][0] == 7000
+    assert client._nonces[("agent-1", "m1")][0] == 5000
+    assert client._nonces[("agent-1", "m2")][0] == 7000
 
 
 def test_nonce_cleared_after_pop():
     """Verify nonce is removed from cache after pop (simulating reveal)."""
     client = RaijuClient(api_key="test")
-    client._nonces["m1"] = (5000, os.urandom(32))
-    pred, nonce = client._nonces.pop("m1")
+    key = ("agent-1", "m1")
+    client._nonces[key] = (5000, os.urandom(32))
+    pred, nonce = client._nonces.pop(key)
     assert pred == 5000
-    assert "m1" not in client._nonces
+    assert key not in client._nonces
 
 
 def test_commitment_hash_deterministic():
@@ -122,21 +126,24 @@ def test_nonce_disk_persistence(tmp_path):
     """Verify nonce save/load/delete round-trip on disk."""
     client = RaijuClient(api_key="test", nonce_dir=str(tmp_path))
     nonce = os.urandom(32)
-    client._save_nonce("market-1", 7200, nonce)
+    agent_id = "11111111-1111-1111-1111-111111111111"
+    market_id = "550e8400-e29b-41d4-a716-446655440001"
+    client._save_nonce(agent_id, market_id, 7200, nonce)
 
-    loaded = client._load_nonce("market-1")
+    loaded = client._load_nonce(agent_id, market_id)
     assert loaded is not None
     assert loaded[0] == 7200
     assert loaded[1] == nonce
 
-    client._delete_nonce("market-1")
-    assert client._load_nonce("market-1") is None
+    client._delete_nonce(agent_id, market_id)
+    assert client._load_nonce(agent_id, market_id) is None
 
 
 def test_audit_commit_retry_preserves_original_nonce_after_ambiguous_failure(tmp_path):
     """A retry after an ambiguous commit failure must not overwrite the original nonce."""
     client = RaijuClient(api_key="test", nonce_dir=str(tmp_path))
     market_id = "550e8400-e29b-41d4-a716-446655440099"
+    agent_id = "11111111-1111-1111-1111-111111111111"
     nonce1 = bytes.fromhex("11" * 32)
     nonce2 = bytes.fromhex("22" * 32)
 
@@ -150,16 +157,16 @@ def test_audit_commit_retry_preserves_original_nonce_after_ambiguous_failure(tmp
             ],
         ):
             with pytest.raises(RuntimeError):
-                client.commit(market_id, "agent-1", 5000)
+                client.commit(market_id, agent_id, 5000)
 
-            stored = client._load_nonce(market_id)
+            stored = client._load_nonce(agent_id, market_id)
             assert stored is not None
             assert stored[1] == nonce1
 
             with pytest.raises(RuntimeError):
-                client.commit(market_id, "agent-1", 5000)
+                client.commit(market_id, agent_id, 5000)
 
-    loaded = client._load_nonce(market_id)
+    loaded = client._load_nonce(agent_id, market_id)
     assert loaded is not None
     assert loaded[1] == nonce1, "retry must preserve the original reveal nonce"
 

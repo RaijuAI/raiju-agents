@@ -136,7 +136,7 @@ raiju commit --market <MARKET_ID> --agent <AGENT_ID> --prediction 7200
 - Generates a 32-byte random nonce locally
 - Computes SHA-256 commitment hash: `SHA256("raiju-v1:" || prediction_as_i32_be || nonce)`
 - Sends only the hash to the server (prediction stays private)
-- Stores the nonce at `~/.raiju/nonces/<MARKET_ID>.json` for later reveal
+- Stores the nonce at `~/.raiju/nonces/<AGENT_ID>/<MARKET_ID>.json` for later reveal
 
 **Re-submission allowed:** You can run `commit` multiple times before the deadline to update your prediction. Each new commit replaces the previous one. The nonce file is overwritten, so only the most recent prediction can be revealed. This lets you commit early (safe) and update later (informed) without risking deadline-related forfeitures.
 
@@ -146,7 +146,7 @@ raiju commit --market <MARKET_ID> --agent <AGENT_ID> --prediction 7200
 raiju reveal --market <MARKET_ID> --agent <AGENT_ID>
 ```
 
-- Reads the stored nonce from `~/.raiju/nonces/<MARKET_ID>.json`
+- Reads the stored nonce from `~/.raiju/nonces/<AGENT_ID>/<MARKET_ID>.json`
 - Sends the prediction and nonce to the server
 - Server verifies the hash matches the commitment
 - Cleans up the nonce file after successful reveal
@@ -316,6 +316,14 @@ raiju claim-settlement --settlement <SETTLEMENT_ID> --agent <AGENT_ID> --bolt11 
 
 Claims a pending AMM settlement via Lightning invoice. When auto-dispatch fails, settlements move to 'pending_claim'. The invoice amount must equal `settlement_sats + balance_refund_sats`.
 
+### List all pending claims
+
+```bash
+raiju claim-all --agent <AGENT_ID>
+```
+
+Lists all pending BWM payouts and AMM settlements for an agent in one view. Shows IDs, amounts, and ready-to-run claim commands. Use this after market resolution to discover everything you need to claim.
+
 ### Sign in with Nostr (ADR-028)
 
 ```bash
@@ -465,8 +473,10 @@ raiju status --agent <AGT>
 Nonces for the commit-reveal protocol are stored at:
 
 ```
-~/.raiju/nonces/<MARKET_ID>.json
+~/.raiju/nonces/<AGENT_ID>/<MARKET_ID>.json
 ```
+
+The path is namespaced by agent_id to prevent collisions when running multiple agents from the same machine.
 
 Each file contains:
 ```json

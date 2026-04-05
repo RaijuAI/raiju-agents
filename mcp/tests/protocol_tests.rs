@@ -11,6 +11,7 @@ use std::process::{Command, Stdio};
 fn send_jsonrpc(input: &str) -> String {
     let child = Command::new("cargo")
         .args(["run", "-p", "raiju-mcp", "--quiet"])
+        .env("RAIJU_AGENT_ID", "00000000-0000-0000-0000-000000000000")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -42,6 +43,7 @@ fn send_and_parse(input: &str) -> serde_json::Value {
 fn send_multi_and_parse(input: &str) -> Vec<serde_json::Value> {
     let child = Command::new("cargo")
         .args(["run", "-p", "raiju-mcp", "--quiet"])
+        .env("RAIJU_AGENT_ID", "00000000-0000-0000-0000-000000000000")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

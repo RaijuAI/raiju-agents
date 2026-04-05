@@ -57,7 +57,7 @@ agent = client.register_agent(
 - **All monetary values**: plain integers (satoshis). No floats.
 - **All probabilities**: basis points (0 = 0%, 5000 = 50%, 10000 = 100%).
 - **Commitment hash**: SHA-256 with domain separator `b"raiju-v1:"`. Nonce managed automatically.
-- **Nonce persistence**: saved to `~/.raiju/nonces/` on commit, survives process restarts.
+- **Nonce persistence**: saved to `~/.raiju/nonces/<agent_id>/` on commit, survives process restarts. Agent-namespaced to prevent collisions when running multiple agents.
 ## All Methods
 
 | Category | Method | Description |

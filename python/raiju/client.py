@@ -49,7 +49,7 @@ class RaijuClient:
         )
         os.makedirs(self._nonce_dir, exist_ok=True)
         # In-memory cache (populated from disk on reveal)
-        self._nonces: dict[str, tuple[int, bytes]] = {}
+        self._nonces: dict[tuple[str, str], tuple[int, bytes]] = {}
         # Track whether platform notices have been shown (print once per session)
         self._notices_shown = False
 
@@ -282,11 +282,13 @@ class RaijuClient:
         if not 0 <= prediction_bps <= 10000:
             raise ValueError(f"prediction_bps must be 0-10000, got {prediction_bps}")
 
-        stored = self._nonces.get(market_id)
+        # Use (agent_id, market_id) as cache key to avoid collisions across agents
+        cache_key = (agent_id, market_id)
+        stored = self._nonces.get(cache_key)
         if stored is None:
-            loaded = self._load_nonce(market_id)
+            loaded = self._load_nonce(agent_id, market_id)
             if loaded is not None:
-                self._nonces[market_id] = loaded
+                self._nonces[cache_key] = loaded
                 stored = loaded
 
         if stored is not None:
@@ -294,15 +296,15 @@ class RaijuClient:
             if stored_prediction_bps != prediction_bps:
                 # Re-submitting with a different prediction: generate new nonce
                 nonce = os.urandom(32)
-                self._nonces[market_id] = (prediction_bps, nonce)
-                self._save_nonce(market_id, prediction_bps, nonce)
+                self._nonces[cache_key] = (prediction_bps, nonce)
+                self._save_nonce(agent_id, market_id, prediction_bps, nonce)
             else:
                 # Same prediction: reuse existing nonce
                 nonce = stored[1]
         else:
             nonce = os.urandom(32)
-            self._nonces[market_id] = (prediction_bps, nonce)
-            self._save_nonce(market_id, prediction_bps, nonce)
+            self._nonces[cache_key] = (prediction_bps, nonce)
+            self._save_nonce(agent_id, market_id, prediction_bps, nonce)
 
         # Compute commitment hash: SHA-256("raiju-v1:" || 4-byte BE i32 prediction || nonce)
         pred_bytes = prediction_bps.to_bytes(4, "big", signed=True)
@@ -335,16 +337,18 @@ class RaijuClient:
             nostr_event: Optional kind 30150 Nostr event (JSON dict) for portable
                 proof of reveal authorship (ADR-028 Phase 2B).
         """
-        if market_id not in self._nonces:
+        # Use (agent_id, market_id) as cache key to avoid collisions across agents
+        cache_key = (agent_id, market_id)
+        if cache_key not in self._nonces:
             # Try loading from disk (survives process restarts)
-            loaded = self._load_nonce(market_id)
+            loaded = self._load_nonce(agent_id, market_id)
             if loaded is None:
                 raise ValueError(
                     f"No stored nonce for market {market_id}. Did you call commit()?"
                 )
-            self._nonces[market_id] = loaded
+            self._nonces[cache_key] = loaded
 
-        prediction_bps, nonce = self._nonces[market_id]  # peek, don't pop yet
+        prediction_bps, nonce = self._nonces[cache_key]  # peek, don't pop yet
 
         body: dict = {
             "agent_id": agent_id,
@@ -363,8 +367,8 @@ class RaijuClient:
                 "reveal", market_id, prediction_bps, nonce.hex()
             ),
         )
-        self._nonces.pop(market_id, None)
-        self._delete_nonce(market_id)
+        self._nonces.pop(cache_key, None)
+        self._delete_nonce(agent_id, market_id)
         return result
 
     # -- Leaderboard --
@@ -748,38 +752,50 @@ class RaijuClient:
     # -- Nonce persistence helpers --
 
     @staticmethod
-    def _validate_market_uuid(market_id: str) -> None:
-        """Validate market_id is a UUID to prevent path traversal in nonce files."""
+    def _validate_uuid(value: str, name: str = "id") -> None:
+        """Validate a value is a UUID to prevent path traversal in nonce files."""
         import uuid as _uuid
 
         try:
-            _uuid.UUID(market_id)
+            _uuid.UUID(value)
         except (ValueError, AttributeError):
             raise ValueError(
-                f"invalid market_id: expected UUID format, got '{market_id}'"
+                f"invalid {name}: expected UUID format, got '{value}'"
             )
 
-    def _save_nonce(self, market_id: str, prediction_bps: int, nonce: bytes) -> None:
+    @staticmethod
+    def _validate_market_uuid(market_id: str) -> None:
+        """Validate market_id is a UUID to prevent path traversal in nonce files."""
+        RaijuClient._validate_uuid(market_id, "market_id")
+
+    def _nonce_path(self, agent_id: str, market_id: str) -> str:
+        """Return nonce file path: ~/.raiju/nonces/<agent_id>/<market_id>.json"""
+        self._validate_uuid(agent_id, "agent_id")
+        self._validate_uuid(market_id, "market_id")
+        agent_dir = os.path.join(self._nonce_dir, agent_id)
+        os.makedirs(agent_dir, exist_ok=True)
+        return os.path.join(agent_dir, f"{market_id}.json")
+
+    def _save_nonce(
+        self, agent_id: str, market_id: str, prediction_bps: int, nonce: bytes
+    ) -> None:
         """Save nonce to disk for crash recovery."""
-        self._validate_market_uuid(market_id)
-        path = os.path.join(self._nonce_dir, f"{market_id}.json")
+        path = self._nonce_path(agent_id, market_id)
         data = {"prediction_bps": prediction_bps, "nonce": nonce.hex()}
         with open(path, "w") as f:
             json.dump(data, f)
 
-    def _load_nonce(self, market_id: str) -> tuple[int, bytes] | None:
+    def _load_nonce(self, agent_id: str, market_id: str) -> tuple[int, bytes] | None:
         """Load nonce from disk."""
-        self._validate_market_uuid(market_id)
-        path = os.path.join(self._nonce_dir, f"{market_id}.json")
+        path = self._nonce_path(agent_id, market_id)
         if not os.path.exists(path):
             return None
         with open(path) as f:
             data = json.load(f)
         return (data["prediction_bps"], bytes.fromhex(data["nonce"]))
 
-    def _delete_nonce(self, market_id: str) -> None:
+    def _delete_nonce(self, agent_id: str, market_id: str) -> None:
         """Delete nonce file after successful reveal."""
-        self._validate_market_uuid(market_id)
-        path = os.path.join(self._nonce_dir, f"{market_id}.json")
+        path = self._nonce_path(agent_id, market_id)
         if os.path.exists(path):
             os.remove(path)
