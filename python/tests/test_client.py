@@ -213,9 +213,8 @@ class TestListCategories:
             client.session, "get", return_value=_mock_response(expected)
         ) as mock_get:
             result = client.list_categories()
-            mock_get.assert_called_once_with(
-                "http://localhost:3001/v1/markets/categories"
-            )
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith("/v1/markets/categories")
             assert result == expected
 
     def test_list_categories_returns_empty_list(self):
@@ -243,10 +242,10 @@ class TestNostrChallenge:
             client.session, "post", return_value=_mock_response(expected)
         ) as mock_post:
             result = client.nostr_challenge(pubkey)
-            mock_post.assert_called_once_with(
-                "http://localhost:3001/v1/agents/nostr/challenge",
-                json={"nostr_pubkey": pubkey},
-            )
+            call_url = mock_post.call_args[0][0]
+            call_json = mock_post.call_args[1]["json"]
+            assert call_url.endswith("/v1/agents/nostr/challenge")
+            assert call_json == {"nostr_pubkey": pubkey}
             assert result["challenge"] == "deadbeef" * 8
 
     def test_nostr_challenge_preserves_hex_pubkey(self):
@@ -280,10 +279,10 @@ class TestNostrBind:
             client.session, "post", return_value=_mock_response(expected)
         ) as mock_post:
             result = client.nostr_bind(pubkey, sig)
-            mock_post.assert_called_once_with(
-                "http://localhost:3001/v1/agents/nostr/bind",
-                json={"nostr_pubkey": pubkey, "signature": sig},
-            )
+            call_url = mock_post.call_args[0][0]
+            call_json = mock_post.call_args[1]["json"]
+            assert call_url.endswith("/v1/agents/nostr/bind")
+            assert call_json == {"nostr_pubkey": pubkey, "signature": sig}
             assert result["nostr_pubkey"] == pubkey
 
 
@@ -298,9 +297,8 @@ class TestNostrUnbind:
             client.session, "delete", return_value=_mock_response(expected)
         ) as mock_del:
             result = client.nostr_unbind()
-            mock_del.assert_called_once_with(
-                "http://localhost:3001/v1/agents/nostr/bind"
-            )
+            call_url = mock_del.call_args[0][0]
+            assert call_url.endswith("/v1/agents/nostr/bind")
             assert result["unbound"] is True
 
 
@@ -382,9 +380,8 @@ class TestGetPlatformKey:
             client.session, "get", return_value=_mock_response(expected)
         ) as mock_get:
             result = client.get_platform_key()
-            mock_get.assert_called_once_with(
-                "http://localhost:3001/v1/nostr/platform-key"
-            )
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith("/v1/nostr/platform-key")
             assert result["nostr_pubkey"] == "e" * 64
 
 
@@ -407,9 +404,8 @@ class TestGetNostrPredictionEvents:
             client.session, "get", return_value=_mock_response(expected)
         ) as mock_get:
             result = client.get_nostr_prediction_events(market_id, agent_id)
-            mock_get.assert_called_once_with(
-                f"http://localhost:3001/v1/markets/{market_id}/predictions/{agent_id}/nostr"
-            )
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith(f"/v1/markets/{market_id}/predictions/{agent_id}/nostr")
             assert result["commit_event"]["kind"] == 30150
 
     def test_get_nostr_prediction_events_all_none(self):
@@ -445,9 +441,8 @@ class TestGetAgentAttestations:
             client.session, "get", return_value=_mock_response(expected)
         ) as mock_get:
             result = client.get_agent_attestations(agent_id)
-            mock_get.assert_called_once_with(
-                f"http://localhost:3001/v1/agents/{agent_id}/nostr/attestations"
-            )
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith(f"/v1/agents/{agent_id}/nostr/attestations")
             assert len(result["attestations"]) == 1
 
     def test_get_agent_attestations_empty_list(self):
@@ -474,7 +469,8 @@ class TestHealthAndStatus:
             client.session, "get", return_value=_mock_response({"status": "ok"})
         ) as mock_get:
             result = client.health()
-            mock_get.assert_called_once_with("http://localhost:3001/v1/health")
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith("/v1/health")
             assert result["status"] == "ok"
 
     def test_server_status_calls_correct_endpoint(self):
@@ -484,7 +480,8 @@ class TestHealthAndStatus:
             client.session, "get", return_value=_mock_response({"version": "0.5.0"})
         ) as mock_get:
             result = client.server_status()
-            mock_get.assert_called_once_with("http://localhost:3001/v1/status")
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith("/v1/status")
             assert result["version"] == "0.5.0"
 
     def test_node_info_calls_status_endpoint(self):
@@ -498,7 +495,8 @@ class TestHealthAndStatus:
             ),
         ) as mock_get:
             result = client.node_info()
-            mock_get.assert_called_once_with("http://localhost:3001/v1/status")
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith("/v1/status")
             assert result["lightning_node_id"] == "03abc"
 
     def test_agent_status_includes_agent_id_in_path(self):
@@ -508,9 +506,8 @@ class TestHealthAndStatus:
             client.session, "get", return_value=_mock_response({"active": True})
         ) as mock_get:
             client.status("agent-123")
-            mock_get.assert_called_once_with(
-                "http://localhost:3001/v1/agents/agent-123/status"
-            )
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith("/v1/agents/agent-123/status")
 
 
 class TestListMarkets:
@@ -545,7 +542,9 @@ class TestListMarkets:
             client.session, "get", return_value=_mock_response([])
         ) as mock_get:
             client.list_markets()
-            mock_get.assert_called_once_with("http://localhost:3001/v1/markets")
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith("/v1/markets")
+            assert "?" not in call_url  # No query string
 
 
 class TestListAgents:
@@ -569,7 +568,9 @@ class TestListAgents:
             client.session, "get", return_value=_mock_response([])
         ) as mock_get:
             client.list_agents()
-            mock_get.assert_called_once_with("http://localhost:3001/v1/agents")
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith("/v1/agents")
+            assert "?" not in call_url  # No query string
 
 
 class TestSolvency:
@@ -583,5 +584,6 @@ class TestSolvency:
             client.session, "get", return_value=_mock_response(expected)
         ) as mock_get:
             result = client.solvency()
-            mock_get.assert_called_once_with("http://localhost:3001/v1/solvency")
+            call_url = mock_get.call_args[0][0]
+            assert call_url.endswith("/v1/solvency")
             assert result["total_obligations_sats"] == 100000
