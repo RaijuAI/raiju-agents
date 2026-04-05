@@ -299,6 +299,18 @@ enum Commands {
     /// Unbind the Nostr public key from your agent (ADR-028)
     NostrUnbind,
 
+    /// Deactivate an agent you operate (soft-delete, reversible)
+    DeactivateAgent {
+        #[arg(long)]
+        agent: String,
+    },
+
+    /// Reactivate a previously deactivated agent you operate
+    ReactivateAgent {
+        #[arg(long)]
+        agent: String,
+    },
+
     /// Admin commands (point --url at the admin server, e.g. <http://localhost:3002>)
     Admin {
         #[command(subcommand)]
@@ -359,6 +371,18 @@ enum AdminCommands {
         /// Operator ID creating the markets
         #[arg(long)]
         operator: String,
+    },
+
+    /// Deactivate an agent (soft-delete)
+    DeactivateAgent {
+        #[arg(long)]
+        agent: String,
+    },
+
+    /// Reactivate a previously deactivated agent
+    ReactivateAgent {
+        #[arg(long)]
+        agent: String,
     },
 }
 
@@ -556,11 +580,15 @@ fn main() -> Result<()> {
                 .send()?
                 .api_error()?
                 .json()?;
-            println!("Operator ID: {}", resp["id"]);
+            println!("Operator registered.");
+            println!("  Operator ID: {}", resp["id"]);
             if let Some(agent) = resp.get("agent") {
-                println!("Agent ID: {}", agent["id"]);
+                println!(
+                    "\nDefault agent created (deactivate with `raiju deactivate-agent` if unused):"
+                );
+                println!("  Agent ID: {}", agent["id"]);
                 if let Some(key) = agent["api_key"].as_str() {
-                    println!("API Key: {key}");
+                    println!("  API Key: {key}");
                     println!("\nSave this API key. It will not be shown again.");
                 }
             }
@@ -896,6 +924,27 @@ fn main() -> Result<()> {
             }
             let resp: serde_json::Value = req.send()?.api_error()?.json()?;
             println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
+
+        Commands::DeactivateAgent { agent } => {
+            let resp = ctx
+                .authed_post(format!("{}/v1/agents/{agent}/deactivate", ctx.base))
+                .send()?
+                .api_error()?;
+            let body: serde_json::Value = resp.json()?;
+            println!("Agent deactivated: {}", body["id"]);
+            if let Some(warning) = body["warning"].as_str() {
+                eprintln!("Warning: {warning}");
+            }
+        }
+
+        Commands::ReactivateAgent { agent } => {
+            let resp = ctx
+                .authed_post(format!("{}/v1/agents/{agent}/reactivate", ctx.base))
+                .send()?
+                .api_error()?;
+            let body: serde_json::Value = resp.json()?;
+            println!("Agent reactivated: {}", body["id"]);
         }
 
         Commands::Admin { action } => cmd_admin(&ctx, action)?,
@@ -1254,6 +1303,27 @@ fn cmd_admin(ctx: &Ctx, action: AdminCommands) -> Result<()> {
 
         AdminCommands::SeedTemplates { month, operator } => {
             cmd_admin_seed_templates(ctx, &month, &operator)?;
+        }
+
+        AdminCommands::DeactivateAgent { agent } => {
+            let resp: serde_json::Value = ctx
+                .authed_post(format!("{}/v1/agents/{agent}/deactivate", ctx.base))
+                .send()?
+                .api_error()?
+                .json()?;
+            println!("Agent deactivated: {}", resp["id"]);
+            if let Some(warning) = resp["warning"].as_str() {
+                eprintln!("Warning: {warning}");
+            }
+        }
+
+        AdminCommands::ReactivateAgent { agent } => {
+            let resp: serde_json::Value = ctx
+                .authed_post(format!("{}/v1/agents/{agent}/reactivate", ctx.base))
+                .send()?
+                .api_error()?
+                .json()?;
+            println!("Agent reactivated: {}", resp["id"]);
         }
     }
     Ok(())
