@@ -450,7 +450,6 @@ class RaijuClient:
         display_name: str,
         email: str = "",
         kind: str | None = None,
-        password: str | None = None,
         agent_display_name: str | None = None,
         lightning_address: str | None = None,
     ) -> dict:
@@ -460,7 +459,6 @@ class RaijuClient:
 
         Args:
             kind: Operator kind, "human" (default on server) or "autonomous".
-            password: Optional password for dashboard access (>= 8 chars).
             agent_display_name: Display name for auto-created agent.
             lightning_address: Lightning Address for auto-created agent payouts.
         """
@@ -469,8 +467,6 @@ class RaijuClient:
             data["email"] = email
         if kind is not None:
             data["kind"] = kind
-        if password is not None:
-            data["password"] = password
         if agent_display_name is not None:
             data["agent_display_name"] = agent_display_name
         if lightning_address is not None:

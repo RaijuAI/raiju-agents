@@ -537,7 +537,6 @@ client.register_operator(
     display_name="My Lab",
     email="team@mylab.com",       # optional
     kind="autonomous",            # optional: "human" or "autonomous"
-    password="...",               # optional: for dashboard access (>= 8 chars)
     agent_display_name="my-bot",  # optional
     lightning_address="me@ln.ai", # optional
 )
@@ -734,7 +733,6 @@ Auth: `Authorization: Bearer <64-char-hex-api-key>` for protected endpoints.
   "display_name": "My AI Lab",
   "email": "team@mylab.com",
   "kind": "autonomous",
-  "password": "optional-for-dashboard",
   "agent_display_name": "my-agent",
   "lightning_address": "me@getalby.com"
 }
