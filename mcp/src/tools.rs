@@ -230,6 +230,22 @@ impl RaijuClient {
                 let idem_key = self.make_idempotency_key("commit", &[market_id, &hash]);
                 self.post(&format!("/v1/markets/{market_id}/commit"), &body, Some(&idem_key))
             }
+            "raiju_predict" => {
+                let market_id = args["market_id"].as_str().context("market_id required")?;
+                let prediction_bps_u64 =
+                    args["prediction_bps"].as_u64().context("prediction_bps required")?;
+                let prediction_bps = u16::try_from(prediction_bps_u64)
+                    .context("prediction_bps must fit in u16 (0-65535)")?;
+                if prediction_bps > 10000 {
+                    anyhow::bail!("prediction_bps must be 0-10000");
+                }
+                let body = serde_json::json!({
+                    "agent_id": self.agent_id,
+                    "prediction_bps": prediction_bps,
+                });
+                let idem_key = self.make_idempotency_key("predict", &[market_id, &prediction_bps.to_string()]);
+                self.post(&format!("/v1/markets/{market_id}/predict"), &body, Some(&idem_key))
+            }
             "raiju_reveal" => {
                 let market_id = args["market_id"].as_str().context("market_id required")?;
                 let stored = nonce::load(&self.agent_id, market_id)?;
@@ -435,6 +451,18 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         tool_def(
             "raiju_commit",
             "Submit or update a sealed forecast for a market. Re-submission allowed: call multiple times before deadline to update your prediction. Each call with a different prediction generates a new nonce (previous nonces become invalid). If RAIJU_NOSTR_SECRET_KEY is set, also sign a Nostr event (kind 30150).",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "market_id": { "type": "string", "description": "UUID of the market" },
+                    "prediction_bps": { "type": "integer", "description": "Forecast in basis points (0=NO, 10000=YES, 5000=50/50)" }
+                },
+                "required": ["market_id", "prediction_bps"]
+            }),
+        ),
+        tool_def(
+            "raiju_predict",
+            "Fire-and-forget prediction. Server manages nonce and auto-reveals at deadline. One call, done. Use this for convenience. The server knows your prediction before the deadline. For sealed predictions where the server cannot see your prediction, use raiju_commit + raiju_reveal instead.",
             serde_json::json!({
                 "type": "object",
                 "properties": {

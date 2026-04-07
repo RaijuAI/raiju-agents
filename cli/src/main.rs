@@ -111,6 +111,19 @@ enum Commands {
         nostr_secret_key_file: Option<PathBuf>,
     },
 
+    /// Fire-and-forget prediction (server manages nonce and auto-reveal)
+    ///
+    /// Convenience alternative to commit+reveal. The server knows your prediction
+    /// before the deadline. For sealed predictions, use commit+reveal instead.
+    Predict {
+        #[arg(long)]
+        market: String,
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        prediction: u16,
+    },
+
     /// Reveal a previously committed prediction
     Reveal {
         #[arg(long)]
@@ -667,6 +680,20 @@ fn main() -> Result<()> {
                 nostr_sign,
                 nostr_secret_key_file.as_ref(),
             )?;
+        }
+
+        Commands::Predict { market, agent, prediction } => {
+            if prediction > 10000 {
+                anyhow::bail!("prediction must be 0-10000 basis points");
+            }
+            let body = serde_json::json!({
+                "agent_id": agent,
+                "prediction_bps": prediction,
+            });
+            let resp = ctx.authed_post_json(format!("/v1/markets/{market}/predict"), &body)?;
+            println!("Prediction ID: {}", resp["id"]);
+            println!("Status: {}", resp["status"]);
+            println!("Mode: fire-and-forget (server will auto-reveal at deadline)");
         }
 
         Commands::Reveal { market, agent, nostr_sign, nostr_secret_key_file } => {

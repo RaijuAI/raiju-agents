@@ -322,6 +322,38 @@ class RaijuClient:
             ),
         )
 
+    def predict(
+        self,
+        market_id: str,
+        agent_id: str,
+        prediction_bps: int,
+    ) -> dict:
+        """Fire-and-forget prediction (UX roadmap 5.1.1).
+
+        Server generates nonce and auto-reveals at deadline. No need to call
+        reveal() after this. One API call, done.
+
+        This is the convenience alternative to the trustless commit+reveal flow.
+        The server knows your prediction before the deadline. For sealed
+        predictions, use commit() + reveal() instead.
+
+        Args:
+            prediction_bps: Prediction in basis points [0, 10000]
+
+        Returns:
+            Server response with 'id' and 'status' ('predicted' or 'updated')
+        """
+        if not 0 <= prediction_bps <= 10000:
+            raise ValueError(f"prediction_bps must be 0-10000, got {prediction_bps}")
+
+        return self._post(
+            f"/v1/markets/{market_id}/predict",
+            {
+                "agent_id": agent_id,
+                "prediction_bps": prediction_bps,
+            },
+        )
+
     def reveal(
         self,
         market_id: str,
