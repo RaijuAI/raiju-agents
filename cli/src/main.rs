@@ -2,10 +2,11 @@
 //!
 //! Usage:
 //!   raiju register-operator --name "My Org"
-//!   raiju register-agent --operator <ID> --name "My Agent" --address user@getalby.com
+//!   raiju register-agent --operator <ID> --name "My Agent"
+//!   raiju wallet set --agent <ID> --nwc-uri "nostr+walletconnect://..."
 //!   raiju markets
 //!   raiju deposit --market <ID> --agent <ID> --amount 5000
-//!   raiju commit --market <ID> --agent <ID> --prediction 7200
+//!   raiju predict --market <ID> --agent <ID> --prediction 7200
 //!   raiju reveal --market <ID> --agent <ID>
 //!   raiju trade --market <ID> --agent <ID> --direction `buy_yes` --shares 10
 //!   raiju leaderboard
@@ -49,8 +50,6 @@ enum Commands {
     RegisterOperator {
         #[arg(long)]
         name: String,
-        #[arg(long)]
-        email: Option<String>,
     },
 
     /// Register a new agent (returns API key once)
@@ -59,14 +58,33 @@ enum Commands {
         operator: String,
         #[arg(long)]
         name: String,
-        #[arg(long)]
-        address: Option<String>,
         /// Agent description (up to 1000 chars)
         #[arg(long)]
         description: Option<String>,
         /// `HuggingFace` or GitHub repo URL
         #[arg(long)]
         repo_url: Option<String>,
+    },
+
+    /// Connect NWC wallet (Nostr Wallet Connect)
+    WalletSet {
+        #[arg(long)]
+        agent: String,
+        /// NWC connection URI (nostr+walletconnect://...)
+        #[arg(long)]
+        nwc_uri: String,
+    },
+
+    /// Check wallet connection status
+    WalletStatus {
+        #[arg(long)]
+        agent: String,
+    },
+
+    /// Disconnect NWC wallet
+    WalletRemove {
+        #[arg(long)]
+        agent: String,
     },
 
     /// List markets
@@ -252,9 +270,6 @@ enum Commands {
         #[arg(long)]
         status: Option<String>,
     },
-
-    /// Get solvency report
-    Solvency,
 
     /// Claim a pending payout
     ClaimPayout {
@@ -487,6 +502,22 @@ impl Ctx {
             .api_error()?
             .json()?)
     }
+
+    fn authed_get_json(&self, url: String) -> Result<serde_json::Value> {
+        let mut builder = self.client.get(url);
+        if let Some(ref auth) = self.auth {
+            builder = builder.headers(auth.clone());
+        }
+        Ok(builder.send()?.api_error()?.json()?)
+    }
+
+    fn authed_delete(&self, url: String) -> Result<serde_json::Value> {
+        let mut builder = self.client.delete(url);
+        if let Some(ref auth) = self.auth {
+            builder = builder.headers(auth.clone());
+        }
+        Ok(builder.send()?.api_error()?.json()?)
+    }
 }
 
 fn main() -> Result<()> {
@@ -581,11 +612,8 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::RegisterOperator { name, email } => {
-            let mut body = serde_json::json!({"display_name": name});
-            if let Some(e) = email {
-                body["email"] = serde_json::Value::String(e);
-            }
+        Commands::RegisterOperator { name } => {
+            let body = serde_json::json!({"display_name": name});
             let resp: serde_json::Value = ctx
                 .client
                 .post(format!("{}/v1/operators", ctx.base))
@@ -607,15 +635,11 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::RegisterAgent { operator, name, address, description, repo_url } => {
-            let has_address = address.is_some();
+        Commands::RegisterAgent { operator, name, description, repo_url } => {
             let mut body = serde_json::json!({
                 "operator_id": operator,
                 "display_name": name,
             });
-            if let Some(addr) = address {
-                body["lightning_address"] = serde_json::Value::String(addr);
-            }
             if let Some(desc) = description {
                 body["description"] = serde_json::Value::String(desc);
             }
@@ -631,12 +655,7 @@ fn main() -> Result<()> {
             println!("Agent ID: {}", resp["id"]);
             println!("API Key: {}", resp["api_key"]);
             println!("\nSave this API key. It will not be shown again.");
-            if !has_address {
-                eprintln!(
-                    "\nWarning: No lightning address set. Payouts will require manual claim."
-                );
-                eprintln!("Set one with: raiju update-agent --address <your@ln.address>");
-            }
+            println!("Connect your wallet: raiju wallet set --agent {} --nwc-uri \"nostr+walletconnect://...\"", resp["id"]);
         }
 
         Commands::Markets { category } => {
@@ -658,6 +677,30 @@ fn main() -> Result<()> {
                 );
             }
             println!("\n{} markets total", resp.len());
+        }
+
+        Commands::WalletSet { agent, nwc_uri } => {
+            let body = serde_json::json!({"nwc_uri": nwc_uri});
+            let resp = ctx.authed_post_json(format!("{}/v1/agents/{agent}/wallet", ctx.base), &body)?;
+            println!("Connected: {}", resp["connected"]);
+            if let Some(verified) = resp["verified_at"].as_str() {
+                println!("Verified at: {verified}");
+            } else {
+                println!("Verification: pending (background check in progress)");
+            }
+        }
+
+        Commands::WalletStatus { agent } => {
+            let resp = ctx.authed_get_json(format!("{}/v1/agents/{agent}/wallet", ctx.base))?;
+            println!("Connected: {}", resp["connected"]);
+            if let Some(verified) = resp["verified_at"].as_str() {
+                println!("Verified at: {verified}");
+            }
+        }
+
+        Commands::WalletRemove { agent } => {
+            ctx.authed_delete(format!("{}/v1/agents/{agent}/wallet", ctx.base))?;
+            println!("Wallet disconnected.");
         }
 
         Commands::Market { id } => ctx.get_pretty(&format!("/v1/markets/{id}"))?,
@@ -838,8 +881,6 @@ fn main() -> Result<()> {
             }
             ctx.get_pretty(&query)?;
         }
-        Commands::Solvency => ctx.get_pretty("/v1/solvency")?,
-
         Commands::ClaimPayout { payout, agent, bolt11 } => {
             let body = serde_json::json!({
                 "agent_id": agent,

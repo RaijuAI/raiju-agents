@@ -175,6 +175,17 @@ impl RaijuClient {
                     Some(&self.random_idempotency_key()),
                 )
             }
+            "raiju_wallet_set" => {
+                let nwc_uri = args["nwc_uri"].as_str().context("nwc_uri required")?;
+                let body = serde_json::json!({"nwc_uri": nwc_uri});
+                self.post(&format!("/v1/agents/{}/wallet", self.agent_id), &body, None)
+            }
+            "raiju_wallet_remove" => {
+                self.delete(&format!("/v1/agents/{}/wallet", self.agent_id))
+            }
+            "raiju_wallet_status" => {
+                self.get(&format!("/v1/agents/{}/wallet", self.agent_id))
+            }
             "raiju_commit" => {
                 let market_id = args["market_id"].as_str().context("market_id required")?;
                 let prediction_bps_u64 =
@@ -447,6 +458,27 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                 },
                 "required": ["market_id", "amount_sats"]
             }),
+        ),
+        tool_def(
+            "raiju_wallet_set",
+            "Connect an NWC (Nostr Wallet Connect) wallet. The server stores the URI encrypted and uses it to pull deposits and push payouts automatically. Supports Alby Hub, LNbits, Zeus, or any NWC-compatible wallet.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "nwc_uri": { "type": "string", "description": "NWC connection URI (nostr+walletconnect://...)" }
+                },
+                "required": ["nwc_uri"]
+            }),
+        ),
+        tool_def(
+            "raiju_wallet_remove",
+            "Disconnect the NWC wallet. Reverts to manual BOLT11 deposits and claims.",
+            serde_json::json!({"type": "object", "properties": {}}),
+        ),
+        tool_def(
+            "raiju_wallet_status",
+            "Check if an NWC wallet is connected and when it was last verified.",
+            serde_json::json!({"type": "object", "properties": {}}),
         ),
         tool_def(
             "raiju_commit",

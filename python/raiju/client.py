@@ -96,6 +96,15 @@ class RaijuClient:
         except json.JSONDecodeError as e:
             raise RaijuError(f"Server returned invalid JSON: {resp.text[:200]}") from e
 
+    def _delete(self, path: str) -> dict:
+        """Send a DELETE request and return the JSON response."""
+        resp = self.session.delete(f"{self.base_url}{path}", timeout=30)
+        self._raise_for_api_error(resp)
+        try:
+            return resp.json()
+        except json.JSONDecodeError as e:
+            raise RaijuError(f"Server returned invalid JSON: {resp.text[:200]}") from e
+
     def _make_idempotency_key(self, namespace: str, *parts: object) -> str:
         material = ":".join([namespace, *[str(part) for part in parts]])
         return hashlib.sha256(material.encode()).hexdigest()
@@ -354,6 +363,30 @@ class RaijuClient:
             },
         )
 
+    # -- Wallet (NWC, ADR-037) --
+
+    def set_wallet(self, agent_id: str, nwc_uri: str) -> dict:
+        """Register NWC wallet for automatic deposits and payouts (ADR-037).
+
+        The server stores the URI encrypted and uses it to pull deposits
+        and push payouts automatically. Supports any NWC-compatible wallet
+        (Alby Hub, LNbits, Zeus).
+
+        Args:
+            nwc_uri: NWC connection URI (nostr+walletconnect://...)
+        """
+        return self._post(f"/v1/agents/{agent_id}/wallet", {"nwc_uri": nwc_uri})
+
+    def remove_wallet(self, agent_id: str) -> dict:
+        """Remove NWC wallet connection. Reverts to manual BOLT11."""
+        return self._delete(f"/v1/agents/{agent_id}/wallet")
+
+    def wallet_status(self, agent_id: str) -> dict:
+        """Check wallet connection status."""
+        return self._get(f"/v1/agents/{agent_id}/wallet")
+
+    # -- Predict (sealed + fire-and-forget) --
+
     def reveal(
         self,
         market_id: str,
@@ -448,10 +481,9 @@ class RaijuClient:
     def register_operator(
         self,
         display_name: str,
-        email: str = "",
         kind: str | None = None,
         agent_display_name: str | None = None,
-        lightning_address: str | None = None,
+        nwc_uri: str | None = None,
     ) -> dict:
         """Register a new operator.
 
@@ -460,26 +492,24 @@ class RaijuClient:
         Args:
             kind: Operator kind, "human" (default on server) or "autonomous".
             agent_display_name: Display name for auto-created agent.
-            lightning_address: Lightning Address for auto-created agent payouts.
+            nwc_uri: NWC connection URI for automatic deposits and payouts.
         """
         data: dict = {"display_name": display_name}
-        if email:
-            data["email"] = email
         if kind is not None:
             data["kind"] = kind
         if agent_display_name is not None:
             data["agent_display_name"] = agent_display_name
-        if lightning_address is not None:
-            data["lightning_address"] = lightning_address
+        if nwc_uri is not None:
+            data["nwc_uri"] = nwc_uri
         return self._post("/v1/operators", data)
 
     def register_agent(
         self,
         operator_id: str,
         display_name: str,
-        lightning_address: str | None = None,
         description: str | None = None,
         repo_url: str | None = None,
+        nwc_uri: str | None = None,
     ) -> dict:
         """Register a new agent under an operator.
 
@@ -487,20 +517,20 @@ class RaijuClient:
         The api_key is shown only once at registration.
 
         Args:
-            lightning_address: Lightning Address for payouts (e.g., user@getalby.com). Optional.
             description: Agent description (max 1000 chars).
             repo_url: Public repository URL (max 500 chars).
+            nwc_uri: NWC connection URI for automatic deposits and payouts.
         """
         data: dict = {
             "operator_id": operator_id,
             "display_name": display_name,
         }
-        if lightning_address is not None:
-            data["lightning_address"] = lightning_address
         if description is not None:
             data["description"] = description
         if repo_url is not None:
             data["repo_url"] = repo_url
+        if nwc_uri is not None:
+            data["nwc_uri"] = nwc_uri
         return self._post("/v1/agents", data)
 
     # -- Payouts --
@@ -770,12 +800,6 @@ class RaijuClient:
                         pass
                 event_type = ""
                 data_lines = []
-
-    # -- Solvency --
-
-    def solvency(self) -> dict:
-        """Get latest solvency report."""
-        return self._get("/v1/solvency")
 
     # -- Nonce persistence helpers --
 
