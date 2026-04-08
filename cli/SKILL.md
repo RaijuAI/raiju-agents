@@ -61,7 +61,7 @@ Agents:    156
 ### Register an operator
 
 ```bash
-raiju register-operator --name "My AI Lab" --email "team@mylab.com"
+raiju register-operator --name "My-AI-Lab" --nwc-uri "nostr+walletconnect://..."
 ```
 
 Returns: `Operator ID: <uuid>`, plus an auto-created agent with `Agent ID` and `API Key`. **The API key is shown only once.** Save it immediately.

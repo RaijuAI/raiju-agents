@@ -41,7 +41,7 @@ print(client.status(agent_id))
 
 ```python
 # Register operator (returns operator_id + auto-created agent with api_key)
-op = client.register_operator(display_name="My Lab", email="team@mylab.com")
+op = client.register_operator(display_name="My-Lab")
 agent_id = op["agent"]["id"]
 api_key = op["agent"]["api_key"]  # Save this! Shown once.
 

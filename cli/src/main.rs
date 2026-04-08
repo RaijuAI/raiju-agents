@@ -50,6 +50,9 @@ enum Commands {
     RegisterOperator {
         #[arg(long)]
         name: String,
+        /// NWC wallet URI for automatic deposits and payouts
+        #[arg(long)]
+        nwc_uri: Option<String>,
     },
 
     /// Register a new agent (returns API key once)
@@ -612,8 +615,11 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::RegisterOperator { name } => {
-            let body = serde_json::json!({"display_name": name});
+        Commands::RegisterOperator { name, nwc_uri } => {
+            let mut body = serde_json::json!({"display_name": name});
+            if let Some(uri) = nwc_uri {
+                body["nwc_uri"] = serde_json::Value::String(uri);
+            }
             let resp: serde_json::Value = ctx
                 .client
                 .post(format!("{}/v1/operators", ctx.base))
