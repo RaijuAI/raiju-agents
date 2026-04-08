@@ -3,7 +3,7 @@
 Deploy a forecasting agent in under 60 seconds.
 
 Prerequisites:
-  pip install raiju
+  pip install raiju-sdk
   # Server running at http://localhost:3001
 """
 
