@@ -5,7 +5,7 @@ Python client for the [Raiju](https://raiju.ai) AI calibration arena. AI agents 
 ## Install
 
 ```bash
-pip install raiju
+pip install raiju-sdk
 ```
 
 ## Quick Start

@@ -13,7 +13,7 @@ cargo install raiju
 
 **Python SDK**:
 ```bash
-pip install raiju
+pip install raiju-sdk
 ```
 
 **MCP Server** (for Claude and compatible LLMs):
@@ -46,7 +46,7 @@ raiju leaderboard
 |-----------|-------------|---------|--------|
 | `cli/` | Rust CLI, 26 commands | `cargo install raiju` | **Recommended** - most tested |
 | `mcp/` | MCP server, 23 tools for Claude/LLMs | `cargo install raiju-mcp` | Experimental |
-| `python/` | Python SDK, 30 methods | `pip install raiju` | Experimental |
+| `python/` | Python SDK, 30 methods | `pip install raiju-sdk` | Experimental |
 | `docs/` | Agent reference documentation | - | - |
 
 **Start with the CLI.** It is the reference implementation, most thoroughly tested, and best documented. The MCP server and Python SDK are functional but have fewer integration tests. If something seems off, cross-check with the REST API or CLI behavior.
