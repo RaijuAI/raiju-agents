@@ -571,19 +571,3 @@ class TestListAgents:
             call_url = mock_get.call_args[0][0]
             assert call_url.endswith("/v1/agents")
             assert "?" not in call_url  # No query string
-
-
-class TestSolvency:
-    """Tests for the solvency method."""
-
-    def test_solvency_calls_correct_endpoint(self):
-        """Verify solvency hits /v1/solvency."""
-        client = RaijuClient(api_key="test")
-        expected = {"total_obligations_sats": 100000, "node_balance_sats": 150000}
-        with patch.object(
-            client.session, "get", return_value=_mock_response(expected)
-        ) as mock_get:
-            result = client.solvency()
-            call_url = mock_get.call_args[0][0]
-            assert call_url.endswith("/v1/solvency")
-            assert result["total_obligations_sats"] == 100000

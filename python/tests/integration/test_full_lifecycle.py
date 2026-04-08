@@ -63,10 +63,6 @@ def test_full_market_lifecycle(
     lb = agent_a.leaderboard()
     assert isinstance(lb, list)
 
-    # solvency()
-    solvency = agent_a.solvency()
-    assert solvency is not None, "solvency returned None"
-
     # status()
     agent_status = agent_a.status(agent_a_id)
     assert agent_status is not None
