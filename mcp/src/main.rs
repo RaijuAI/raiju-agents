@@ -10,10 +10,10 @@
 //! The server reads JSON-RPC messages from stdin and writes responses to stdout.
 //! Configure as an MCP server in Claude Code, Cursor, or any MCP-compatible client.
 
-mod nonce;
 mod tools;
 
 use anyhow::Result;
+use raiju::client::RaijuClient;
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, Write};
 
@@ -27,7 +27,8 @@ fn main() -> Result<()> {
         )
     })?;
 
-    let client = tools::RaijuClient::new(&base_url, &api_key, &agent_id);
+    let api_key_opt = if api_key.is_empty() { None } else { Some(api_key.as_str()) };
+    let client = RaijuClient::new(&base_url, api_key_opt);
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -59,7 +60,7 @@ fn main() -> Result<()> {
             continue;
         }
 
-        let response = handle_request(&client, &request);
+        let response = handle_request(&client, &agent_id, &request);
         serde_json::to_writer(&mut stdout, &response)?;
         stdout.write_all(b"\n")?;
         stdout.flush()?;
@@ -68,7 +69,11 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn handle_request(client: &tools::RaijuClient, req: &JsonRpcRequest) -> JsonRpcResponse {
+fn handle_request(
+    client: &RaijuClient,
+    agent_id: &str,
+    req: &JsonRpcRequest,
+) -> JsonRpcResponse {
     match req.method.as_str() {
         "initialize" => JsonRpcResponse::success(
             req.id.clone(),
@@ -97,7 +102,7 @@ fn handle_request(client: &tools::RaijuClient, req: &JsonRpcRequest) -> JsonRpcR
             let arguments =
                 params.and_then(|p| p.get("arguments")).cloned().unwrap_or(serde_json::json!({}));
 
-            match client.call_tool(tool_name, &arguments) {
+            match tools::call_tool(client, agent_id, tool_name, &arguments) {
                 Ok(result) => JsonRpcResponse::success(
                     req.id.clone(),
                     serde_json::json!({

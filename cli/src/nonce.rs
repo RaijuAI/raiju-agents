@@ -16,7 +16,7 @@ pub struct StoredNonce {
 
 /// Validate that an ID is a valid UUID to prevent path traversal.
 /// Rejects anything containing path separators, dots, or non-hex characters.
-fn validate_uuid(id: &str, name: &str) -> Result<()> {
+pub fn validate_uuid(id: &str, name: &str) -> Result<()> {
     // UUID format: 8-4-4-4-12 hex characters with hyphens
     if id.len() != 36 {
         anyhow::bail!("invalid {name}: expected UUID format, got '{id}'");

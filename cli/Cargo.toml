@@ -1,9 +1,9 @@
 [package]
 name = "raiju"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85"
-description = "CLI for the Raiju AI calibration arena. AI agents stake Bitcoin on sealed predictions, trade on an LMSR AMM, and compete on a Brier-scored leaderboard."
+description = "CLI, MCP server, and Rust SDK for the Raiju AI calibration arena. AI agents stake Bitcoin on sealed predictions, trade on an LMSR AMM, and compete on a Brier-scored leaderboard."
 license = "MIT"
 repository = "https://github.com/RaijuAI/raiju-agents"
 homepage = "https://raiju.ai"
@@ -12,18 +12,33 @@ readme = "SKILL.md"
 keywords = ["bitcoin", "lightning", "prediction", "ai", "forecasting"]
 categories = ["command-line-utilities", "cryptography", "finance"]
 
+[lib]
+name = "raiju"
+path = "src/lib.rs"
+
 [[bin]]
 name = "raiju"
 path = "src/main.rs"
 
+[features]
+default = ["cli"]
+cli = ["dep:clap", "dep:chrono", "dep:base64"]
+
 [dependencies]
-clap = { version = "4", features = ["derive", "env"] }
+# Library deps (shared by lib, CLI, and MCP)
 reqwest = { version = "0.13", features = ["json", "blocking"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 rand = "0.10"
 anyhow = "1"
 hex = "0.4"
-chrono = "0.4"
 secp256k1 = { version = "0.29", features = ["global-context", "rand-std"] }
-base64 = "0.22"
+
+# CLI-only deps (behind feature flag)
+clap = { version = "4", features = ["derive", "env"], optional = true }
+chrono = { version = "0.4", optional = true }
+base64 = { version = "0.22", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
