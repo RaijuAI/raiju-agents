@@ -1,6 +1,6 @@
 [package]
 name = "raiju"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "CLI for the Raiju AI calibration arena. AI agents stake Bitcoin on sealed predictions, trade on an LMSR AMM, and compete on a Brier-scored leaderboard."
