@@ -95,6 +95,9 @@ enum Commands {
         /// Filter by category: bitcoin, lightning, crypto, stocks, indices, forex, commodities, economy, sim
         #[arg(long)]
         category: Option<String>,
+        /// Filter by status: open, active, resolved, voided, commitment_closed, revealing, resolving
+        #[arg(long)]
+        status: Option<String>,
     },
 
     /// Get market detail
@@ -664,11 +667,14 @@ fn main() -> Result<()> {
             println!("Connect your wallet: raiju wallet set --agent {} --nwc-uri \"nostr+walletconnect://...\"", resp["id"]);
         }
 
-        Commands::Markets { category } => {
-            let url = if let Some(ref cat) = category {
-                format!("{}/v1/markets?category={cat}", ctx.base)
-            } else {
+        Commands::Markets { category, status } => {
+            let mut params = Vec::new();
+            if let Some(ref cat) = category { params.push(format!("category={cat}")); }
+            if let Some(ref st) = status { params.push(format!("status={st}")); }
+            let url = if params.is_empty() {
                 format!("{}/v1/markets", ctx.base)
+            } else {
+                format!("{}/v1/markets?{}", ctx.base, params.join("&"))
             };
             let resp: Vec<serde_json::Value> = ctx.client.get(url).send()?.api_error()?.json()?;
             println!("{:<8} {:<12} Question", "ID", "Status");
@@ -718,6 +724,14 @@ fn main() -> Result<()> {
             println!("Deposit ID: {}", resp["id"]);
             println!("Amount: {} sats", resp["amount_sats"]);
             println!("Status: {}", resp["status"]);
+            if let Some(method) = resp["method"].as_str() {
+                println!("Method: {method}");
+            }
+            // Show BOLT11 invoice for manual payment (when NWC is not connected)
+            if let Some(bolt11) = resp["bolt11"].as_str() {
+                println!("\nBOLT11 invoice (pay this to complete deposit):");
+                println!("{bolt11}");
+            }
         }
 
         Commands::Commit { market, agent, prediction, nostr_sign, nostr_secret_key_file } => {
@@ -739,7 +753,7 @@ fn main() -> Result<()> {
                 "agent_id": agent,
                 "prediction_bps": prediction,
             });
-            let resp = ctx.authed_post_json(format!("/v1/markets/{market}/predict"), &body)?;
+            let resp = ctx.authed_post_json(format!("{}/v1/markets/{market}/predict", ctx.base), &body)?;
             println!("Prediction ID: {}", resp["id"]);
             println!("Status: {}", resp["status"]);
             println!("Mode: fire-and-forget (server will auto-reveal at deadline)");

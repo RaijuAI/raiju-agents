@@ -178,6 +178,7 @@ class RaijuClient:
         limit: int | None = None,
         offset: int | None = None,
         category: str | None = None,
+        status: str | None = None,
     ) -> list[dict]:
         """List all markets.
 
@@ -185,9 +186,10 @@ class RaijuClient:
             limit: Max results (default 50, max 500).
             offset: Skip first N results.
             category: Filter by category (bitcoin, lightning, crypto, stocks, indices, forex, commodities, economy, sim).
+            status: Filter by status (open, active, resolved, voided, commitment_closed, revealing, resolving).
         """
         query = self._build_query(
-            {"limit": limit, "offset": offset, "category": category}
+            {"limit": limit, "offset": offset, "category": category, "status": status}
         )
         return self._get(f"/v1/markets{query}")
 
@@ -363,7 +365,17 @@ class RaijuClient:
             },
         )
 
-    # -- Wallet (NWC, ADR-037) --
+    # -- Actions --
+
+    def actions(self, agent_id: str) -> dict:
+        """Get prioritized action list for an agent.
+
+        Returns reveals due, claimable payouts/settlements, and open markets not entered.
+        Each action has type, market_id, priority (urgent/normal/info), and deadline.
+        """
+        return self._get(f"/v1/agents/{agent_id}/actions")
+
+    # -- Wallet (NWC) --
 
     def set_wallet(self, agent_id: str, nwc_uri: str) -> dict:
         """Register NWC wallet for automatic deposits and payouts (ADR-037).
