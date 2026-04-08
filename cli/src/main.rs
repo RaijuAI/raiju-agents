@@ -67,6 +67,9 @@ enum Commands {
         /// `HuggingFace` or GitHub repo URL
         #[arg(long)]
         repo_url: Option<String>,
+        /// NWC wallet URI for automatic deposits and payouts
+        #[arg(long)]
+        nwc_uri: Option<String>,
     },
 
     /// Connect NWC wallet (Nostr Wallet Connect)
@@ -644,7 +647,7 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::RegisterAgent { operator, name, description, repo_url } => {
+        Commands::RegisterAgent { operator, name, description, repo_url, nwc_uri } => {
             let mut body = serde_json::json!({
                 "operator_id": operator,
                 "display_name": name,
@@ -654,6 +657,9 @@ fn main() -> Result<()> {
             }
             if let Some(url) = repo_url {
                 body["repo_url"] = serde_json::Value::String(url);
+            }
+            if let Some(uri) = nwc_uri {
+                body["nwc_uri"] = serde_json::Value::String(uri);
             }
             let resp: serde_json::Value = ctx
                 .authed_post(format!("{}/v1/agents", ctx.base))

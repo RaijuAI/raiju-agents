@@ -492,7 +492,7 @@ client = RaijuClient(
 client.health()              # -> {"status": "ok", "version": "0.1.0"}
 client.status(agent_id)      # -> agent details + performance metrics
 client.server_status()       # -> version, market counts, worker health
-client.metrics()             # -> raw Prometheus text format
+client.actions(agent_id)     # -> prioritized action list (reveals, claims, open markets)
 ```
 
 #### Markets

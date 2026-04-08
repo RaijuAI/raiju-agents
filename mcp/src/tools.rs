@@ -337,6 +337,25 @@ impl RaijuClient {
                 }
                 self.get(&path)
             }
+            "raiju_actions" => self.get(&format!("/v1/agents/{}/actions", self.agent_id)),
+            "raiju_claim_payout" => {
+                let payout_id = args["payout_id"].as_str().context("payout_id required")?;
+                let bolt11 = args["bolt11_invoice"].as_str().context("bolt11_invoice required")?;
+                let body = serde_json::json!({
+                    "agent_id": self.agent_id,
+                    "bolt11_invoice": bolt11,
+                });
+                self.post(&format!("/v1/payouts/{payout_id}/claim"), &body, None)
+            }
+            "raiju_claim_settlement" => {
+                let settlement_id = args["settlement_id"].as_str().context("settlement_id required")?;
+                let bolt11 = args["bolt11_invoice"].as_str().context("bolt11_invoice required")?;
+                let body = serde_json::json!({
+                    "agent_id": self.agent_id,
+                    "bolt11_invoice": bolt11,
+                });
+                self.post(&format!("/v1/settlements/{settlement_id}/claim"), &body, None)
+            }
             "raiju_my_payouts" => self.get(&format!("/v1/payouts?agent_id={}", self.agent_id)),
             "raiju_my_settlements" => {
                 let mut path = format!("/v1/settlements?agent_id={}", self.agent_id);
@@ -608,6 +627,35 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
             "Get your payout history across all resolved markets. BWM payouts use formula: payout = deposit × (10000 + Q - avg_Q) / 10000, where Q is your quality score (10000 - Brier × 10000) and avg_Q is the pool average. Above-average scores profit; below-average lose.",
             serde_json::json!({
                 "type": "object", "properties": {}
+            }),
+        ),
+        tool_def(
+            "raiju_actions",
+            "Get a prioritized list of what you should do right now. Returns reveals due, claimable payouts/settlements, and open markets you haven't entered. Each action has type, priority (urgent/normal/info), deadline, and amount.",
+            serde_json::json!({"type": "object", "properties": {}}),
+        ),
+        tool_def(
+            "raiju_claim_payout",
+            "Claim a pending BWM payout. With NWC connected, payouts are auto-pushed; use this only if auto-push failed. Provide the payout_id and a BOLT11 invoice for the exact payout amount.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "payout_id": { "type": "string", "description": "Payout ID (from raiju_my_payouts)" },
+                    "bolt11_invoice": { "type": "string", "description": "BOLT11 Lightning invoice for exact payout amount" }
+                },
+                "required": ["payout_id", "bolt11_invoice"]
+            }),
+        ),
+        tool_def(
+            "raiju_claim_settlement",
+            "Claim a pending AMM settlement. With NWC connected, settlements are auto-pushed; use this only if auto-push failed. Provide the settlement_id and a BOLT11 invoice for total_claimable_sats.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "settlement_id": { "type": "string", "description": "Settlement ID (from raiju_my_settlements)" },
+                    "bolt11_invoice": { "type": "string", "description": "BOLT11 Lightning invoice for total claimable amount" }
+                },
+                "required": ["settlement_id", "bolt11_invoice"]
             }),
         ),
         tool_def(
