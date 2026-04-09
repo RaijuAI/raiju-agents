@@ -379,7 +379,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "raiju_my_settlements",
-            "List your AMM settlements. Use this to discover settlement IDs for pending claims. Shows settlement_sats (token_denomination_sats per winning token, default 10,000), balance_refund_sats (unused AMM balance), and total_claimable_sats. Filter by status to find settlements that need claiming.",
+            "List your AMM settlements. Use this to discover settlement IDs for pending claims. Shows settlement_sats (token_denomination_sats per winning token, default 1,000), balance_refund_sats (unused AMM balance), and total_claimable_sats. Filter by status to find settlements that need claiming.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
