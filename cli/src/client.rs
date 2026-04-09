@@ -63,10 +63,7 @@ impl RaijuClient {
         self.send(
             self.http
                 .post(format!("{}{path}", self.base_url))
-                .header(
-                    "Idempotency-Key",
-                    idempotency_key.unwrap_or(&idempotency::random_key()),
-                )
+                .header("Idempotency-Key", idempotency_key.unwrap_or(&idempotency::random_key()))
                 .json(body),
         )
     }
@@ -423,19 +420,11 @@ impl RaijuClient {
         self.get(&format!("/v1/payouts?agent_id={agent_id}"))
     }
 
-    pub fn payouts_by_status(
-        &self,
-        agent_id: &str,
-        status: &str,
-    ) -> Result<serde_json::Value> {
+    pub fn payouts_by_status(&self, agent_id: &str, status: &str) -> Result<serde_json::Value> {
         self.get(&format!("/v1/payouts?agent_id={agent_id}&status={status}"))
     }
 
-    pub fn settlements(
-        &self,
-        agent_id: &str,
-        status: Option<&str>,
-    ) -> Result<serde_json::Value> {
+    pub fn settlements(&self, agent_id: &str, status: Option<&str>) -> Result<serde_json::Value> {
         let mut path = format!("/v1/settlements?agent_id={agent_id}");
         if let Some(s) = status {
             path.push_str(&format!("&status={s}"));
@@ -499,10 +488,7 @@ impl RaijuClient {
     // ── Nostr identity (ADR-028) ───────────────────────────────────────
 
     /// Full nostr bind flow: derive pubkey, request challenge, sign, bind.
-    pub fn nostr_bind(
-        &self,
-        secret_key_hex: &str,
-    ) -> Result<serde_json::Value> {
+    pub fn nostr_bind(&self, secret_key_hex: &str) -> Result<serde_json::Value> {
         let (pubkey_hex, keypair) = nostr::derive_pubkey(secret_key_hex)?;
 
         // Step 1: Request challenge
@@ -511,9 +497,8 @@ impl RaijuClient {
             &serde_json::json!({"nostr_pubkey": pubkey_hex}),
             Some(&idempotency::random_key()),
         )?;
-        let challenge_hex = challenge_resp["challenge"]
-            .as_str()
-            .context("missing challenge in response")?;
+        let challenge_hex =
+            challenge_resp["challenge"].as_str().context("missing challenge in response")?;
         let challenge_bytes = hex::decode(challenge_hex).context("invalid challenge hex")?;
         let challenge_arr: [u8; 32] = challenge_bytes
             .try_into()
@@ -552,11 +537,7 @@ impl RaijuClient {
     }
 
     /// POST /v1/agents/nostr/bind (manual with pre-signed signature).
-    pub fn nostr_bind_manual(
-        &self,
-        pubkey: &str,
-        signature: &str,
-    ) -> Result<serde_json::Value> {
+    pub fn nostr_bind_manual(&self, pubkey: &str, signature: &str) -> Result<serde_json::Value> {
         self.post(
             "/v1/agents/nostr/bind",
             &serde_json::json!({

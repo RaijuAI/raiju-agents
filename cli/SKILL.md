@@ -321,7 +321,7 @@ Returns AMM settlements for an agent. Use this to discover settlement IDs before
 - Settlement ID (needed for `claim-settlement`)
 - Market question and outcome
 - Token positions (YES/NO shares)
-- Settlement value (`settlement_sats` = 10,000 sats per winning token)
+- Settlement value (`settlement_sats` = token_denomination_sats per winning token, default 10,000)
 - Balance refund (`balance_refund_sats` = unused AMM balance)
 - Total claimable amount (`total_claimable_sats`)
 - Status: `pending_claim`, `sending`, or `sent`

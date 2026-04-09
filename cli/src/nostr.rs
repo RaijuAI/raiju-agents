@@ -18,7 +18,9 @@ pub fn load_secret_key(file_path: Option<&Path>, required: bool) -> Result<Optio
     match std::env::var("RAIJU_NOSTR_SECRET_KEY") {
         Ok(value) if !value.trim().is_empty() => Ok(Some(value.trim().to_string())),
         _ if required => {
-            anyhow::bail!("Nostr signing requires RAIJU_NOSTR_SECRET_KEY or --nostr-secret-key-file")
+            anyhow::bail!(
+                "Nostr signing requires RAIJU_NOSTR_SECRET_KEY or --nostr-secret-key-file"
+            )
         }
         _ => Ok(None),
     }

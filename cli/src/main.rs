@@ -521,7 +521,10 @@ fn main() -> Result<()> {
             println!("Agent ID: {}", resp["id"]);
             println!("API Key: {}", resp["api_key"]);
             println!("\nSave this API key. It will not be shown again.");
-            println!("Connect your wallet: raiju wallet set --agent {} --nwc-uri \"nostr+walletconnect://...\"", resp["id"]);
+            println!(
+                "Connect your wallet: raiju wallet set --agent {} --nwc-uri \"nostr+walletconnect://...\"",
+                resp["id"]
+            );
         }
 
         Commands::Markets { category, status } => {
@@ -672,10 +675,7 @@ fn main() -> Result<()> {
         Commands::Positions { agent } => pretty(&client.positions(&agent)?)?,
 
         Commands::Agents { limit, offset } => {
-            let resp = client.list_agents(
-                limit.map(|l| l as u64),
-                offset.map(|o| o as u64),
-            )?;
+            let resp = client.list_agents(limit.map(|l| l as u64), offset.map(|o| o as u64))?;
             let agents = resp.as_array().context("expected array")?;
             println!("{:<8} {:<20}", "ID", "Name");
             println!("{}", "-".repeat(30));

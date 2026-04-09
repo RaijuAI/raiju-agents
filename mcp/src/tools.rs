@@ -122,8 +122,7 @@ pub fn call_tool(
             client.claim_payout(payout_id, agent_id, bolt11)
         }
         "raiju_claim_settlement" => {
-            let settlement_id =
-                args["settlement_id"].as_str().context("settlement_id required")?;
+            let settlement_id = args["settlement_id"].as_str().context("settlement_id required")?;
             let bolt11 = args["bolt11_invoice"].as_str().context("bolt11_invoice required")?;
             client.claim_settlement(settlement_id, agent_id, bolt11)
         }
@@ -316,7 +315,10 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
             "List committed and revealed predictions for a market",
         ),
         market_tool("raiju_market_stats", "Get market statistics (deposit count, trade count)"),
-        market_tool("raiju_market_payouts", "List all BWM payouts for a resolved market with agent IDs, quality scores, and payout amounts"),
+        market_tool(
+            "raiju_market_payouts",
+            "List all BWM payouts for a resolved market with agent IDs, quality scores, and payout amounts",
+        ),
         tool_def(
             "raiju_amm_balance",
             "Get AMM trading balance for an agent in a market (deposit excess above pool_entry_sats)",
@@ -377,7 +379,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "raiju_my_settlements",
-            "List your AMM settlements. Use this to discover settlement IDs for pending claims. Shows settlement_sats (10,000 per winning token), balance_refund_sats (unused AMM balance), and total_claimable_sats. Filter by status to find settlements that need claiming.",
+            "List your AMM settlements. Use this to discover settlement IDs for pending claims. Shows settlement_sats (token_denomination_sats per winning token, default 10,000), balance_refund_sats (unused AMM balance), and total_claimable_sats. Filter by status to find settlements that need claiming.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -663,7 +665,8 @@ mod tests {
     #[test]
     fn call_tool_unknown_returns_error() {
         let client = raiju::client::RaijuClient::new("http://localhost:9999", None);
-        let result = super::call_tool(&client, "agent-1", "nonexistent_tool", &serde_json::json!({}));
+        let result =
+            super::call_tool(&client, "agent-1", "nonexistent_tool", &serde_json::json!({}));
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("Unknown tool"), "error should mention 'Unknown tool', got: {err}");
@@ -821,7 +824,8 @@ mod tests {
     #[test]
     fn call_tool_market_detail_missing_market_id() {
         let client = raiju::client::RaijuClient::new("http://localhost:9999", None);
-        let result = super::call_tool(&client, "agent-1", "raiju_market_detail", &serde_json::json!({}));
+        let result =
+            super::call_tool(&client, "agent-1", "raiju_market_detail", &serde_json::json!({}));
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("market_id"), "should mention market_id, got: {err}");
@@ -946,10 +950,7 @@ mod tests {
         let xonly = secp256k1::XOnlyPublicKey::from_slice(&pubkey_bytes).unwrap();
 
         let secp = secp256k1::Secp256k1::verification_only();
-        assert!(
-            secp.verify_schnorr(&sig, &msg, &xonly).is_ok(),
-            "Schnorr signature should verify"
-        );
+        assert!(secp.verify_schnorr(&sig, &msg, &xonly).is_ok(), "Schnorr signature should verify");
     }
 
     // ── Market tool schema ─────────────────────────────────────────────

@@ -18,6 +18,9 @@ import psycopg2
 import pytest
 import requests
 
+# Must match raiju_amm::DEFAULT_DENOMINATION (ADR-016 token denomination)
+TOKEN_DENOMINATION = 1_000
+
 # Adjust import path for the SDK
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -159,7 +162,7 @@ def open_market(raiju_url, admin_client, deposit_sats):
     # Init AMM
     b_param = 5000
     import math
-    seed_sats = int(math.ceil(b_param * math.log(2) * 10000)) + 1
+    seed_sats = int(math.ceil(b_param * math.log(2) * TOKEN_DENOMINATION)) + 1
     client._post(f"/v1/markets/{market_id}/amm", {
         "b_parameter": b_param,
         "seed_sats": seed_sats,

@@ -69,11 +69,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn handle_request(
-    client: &RaijuClient,
-    agent_id: &str,
-    req: &JsonRpcRequest,
-) -> JsonRpcResponse {
+fn handle_request(client: &RaijuClient, agent_id: &str, req: &JsonRpcRequest) -> JsonRpcResponse {
     match req.method.as_str() {
         "initialize" => JsonRpcResponse::success(
             req.id.clone(),
