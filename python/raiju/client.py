@@ -772,24 +772,100 @@ class RaijuClient:
     # -- SSE Subscription --
 
     def subscribe(self, market_ids: list[str] | None = None):
-        """Subscribe to SSE events for the given markets.
+        """Subscribe to the public SSE event stream.
 
-        Yields ``{"type": ..., "data": ...}`` dicts as they arrive.
+        The endpoint is public; no authentication is required. If
+        ``market_ids`` is ``None``, every event the server publishes is
+        yielded (firehose). Otherwise, events whose envelope ``market_id``
+        is not in the list are filtered out server-side. Note that
+        ``achievement.awarded`` events currently use a null market id and
+        will not pass a non-empty filter.
+
+        Event names are dot-separated (``amm.price_update``, ``amm.trade``,
+        ``market.opened``, etc). The yielded dict shape is::
+
+            {
+                "type": "amm.price_update",
+                "data": {
+                    "type": "amm.price_update",
+                    "market_id": "<uuid>",
+                    "timestamp": "2026-04-11T15:29:12Z",
+                    "data": {
+                        "market_id": "<uuid>",
+                        "yes_price_bps": 4808,
+                        "no_price_bps": 5192,
+                        "direction": "buy_no",
+                        "shares": 1,
+                        "trade_id": "<uuid>",
+                    },
+                },
+            }
+
+        The envelope ``market_id`` is duplicated inside the inner ``data``
+        object so consumers can treat the payload as self-contained.
+
+        Privacy sanitizer: the public stream strips ``agent_id``,
+        ``agent_name``, ``payout_sats``, ``amount_sats``, and ``cost_sats``
+        from every event. To watch your own fills with full fidelity,
+        use :meth:`subscribe_private` (requires an API key).
+
         Use in a for loop::
 
             for event in client.subscribe(["market-uuid"]):
-                print(event["type"], event["data"])
+                print(event["type"], event["data"]["market_id"])
 
         Args:
             market_ids: List of market UUIDs to filter. None = all markets.
         """
+        yield from self._stream_sse(
+            path="/v1/events",
+            market_ids=market_ids,
+            use_auth=False,
+        )
+
+    def subscribe_private(self, market_ids: list[str] | None = None):
+        """Subscribe to the authenticated SSE event stream.
+
+        Same contract as :meth:`subscribe`, with one critical difference:
+        events whose inner ``agent_id`` matches the authenticated caller
+        are emitted with every field intact (``agent_id``, ``agent_name``,
+        ``payout_sats``, ``amount_sats``, ``cost_sats``). Events from other
+        agents are still sanitized, so this endpoint never leaks cross-
+        agent data.
+
+        Requires a valid API key. Raises an HTTPError if the key is
+        missing or invalid.
+
+        Args:
+            market_ids: List of market UUIDs to filter. None = all markets.
+        """
+        yield from self._stream_sse(
+            path="/v1/events/private",
+            market_ids=market_ids,
+            use_auth=True,
+        )
+
+    def _stream_sse(
+        self,
+        path: str,
+        market_ids: list[str] | None,
+        use_auth: bool,
+    ):
+        """Internal SSE reader shared by :meth:`subscribe` and
+        :meth:`subscribe_private`."""
         query = self._build_query(
             {"markets": ",".join(market_ids) if market_ids else None}
         )
-        url = f"{self.base_url}/v1/events{query}"
-        resp = self.session.get(
-            url, stream=True, headers={"Accept": "text/event-stream"}
-        )
+        url = f"{self.base_url}{path}{query}"
+        headers = {"Accept": "text/event-stream"}
+        if use_auth:
+            if not self.api_key:
+                raise ValueError(
+                    f"{path} requires an API key; "
+                    "pass api_key to RaijuClient(...)."
+                )
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        resp = self.session.get(url, stream=True, headers=headers)
         resp.raise_for_status()
 
         event_type = ""

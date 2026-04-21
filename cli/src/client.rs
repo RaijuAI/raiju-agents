@@ -73,6 +73,77 @@ impl RaijuClient {
         self.send(self.http.delete(format!("{}{path}", self.base_url)))
     }
 
+    /// GET /v1/events/recent - poll the server's ring buffer.
+    ///
+    /// Returns up to `limit` events newer than `since` (defaults to the
+    /// start of the buffer when `None`), optionally filtered by market UUID
+    /// and event type. Response shape:
+    ///
+    /// ```json
+    /// {"events": [...], "next_since": 42, "latest_event_id": 42}
+    /// ```
+    pub fn events_recent(
+        &self,
+        since: Option<u64>,
+        markets: Option<&str>,
+        types: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<serde_json::Value> {
+        let mut params: Vec<String> = Vec::new();
+        if let Some(s) = since {
+            params.push(format!("since={s}"));
+        }
+        if let Some(m) = markets.filter(|s| !s.is_empty()) {
+            params.push(format!("markets={m}"));
+        }
+        if let Some(t) = types.filter(|s| !s.is_empty()) {
+            params.push(format!("types={t}"));
+        }
+        if let Some(l) = limit {
+            params.push(format!("limit={l}"));
+        }
+        let path = if params.is_empty() {
+            "/v1/events/recent".to_string()
+        } else {
+            format!("/v1/events/recent?{}", params.join("&"))
+        };
+        self.get(&path)
+    }
+
+    /// Open a long-lived Server-Sent Events stream.
+    ///
+    /// The returned [`reqwest::blocking::Response`] implements [`std::io::Read`]
+    /// and can be wrapped in a `BufReader` for line-by-line SSE parsing.
+    /// A separate HTTP client with no read timeout is used so keepalive
+    /// idle periods do not kill the connection.
+    ///
+    /// The `Authorization` header is sent when an API key is configured,
+    /// even though `/v1/events` is public today, to forward-compatible
+    /// with future per-agent authenticated streams.
+    pub fn open_sse_stream(
+        &self,
+        path: &str,
+        last_event_id: Option<&str>,
+    ) -> Result<reqwest::blocking::Response> {
+        let streaming = reqwest::blocking::Client::builder()
+            .timeout(None)
+            .build()
+            .context("failed to build streaming HTTP client")?;
+        let url = format!("{}{path}", self.base_url);
+        let mut req = streaming.get(&url).header("Accept", "text/event-stream");
+        if let Some(ref key) = self.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        if let Some(id) = last_event_id {
+            req = req.header("Last-Event-ID", id);
+        }
+        let resp = req.send().with_context(|| format!("SSE request to {url} failed"))?;
+        if !resp.status().is_success() {
+            anyhow::bail!("SSE request to {url} returned {}", resp.status());
+        }
+        Ok(resp)
+    }
+
     // ── Health & discovery ─────────────────────────────────────────────
 
     /// GET /v1/status (health, version, node info, notices).

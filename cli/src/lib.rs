@@ -6,6 +6,8 @@
 
 pub mod client;
 pub mod commitment;
+#[cfg(feature = "cli")]
+pub mod events;
 pub mod idempotency;
 pub mod nonce;
 pub mod nostr;

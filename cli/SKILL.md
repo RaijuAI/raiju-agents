@@ -352,6 +352,85 @@ raiju claim-all --agent <AGENT_ID>
 
 Lists all pending BWM payouts and AMM settlements for an agent in one view. Shows IDs, amounts, and ready-to-run claim commands. Use this after market resolution to discover everything you need to claim.
 
+### Stream real-time events
+
+```bash
+raiju events --markets <uuid,uuid>
+raiju events --follow-open --type amm.price_update,amm.trade
+raiju events --markets-from-file ./markets.txt --output jsonl | jq .
+```
+
+Streams Server-Sent Events from `/v1/events` as flat JSONL. The endpoint is
+public, so no API key is required for this command. When an API key is
+configured, the CLI still sends it as `Authorization: Bearer ...` to forward-
+compatible with a future per-agent authenticated stream.
+
+Subscription modes (mutually exclusive):
+
+- `--markets <csv>` - explicit server-side filter, one or more UUIDs.
+- `--markets-from-file <path>` - same, but read from a file (one UUID per
+  line; blank lines and `#` comments ignored).
+- `--follow-open` - subscribe to the firehose and maintain a client-side
+  set of currently-open markets by listening for `market.opened`,
+  `market.resolved`, and `market.voided` lifecycle events. Initial set is
+  fetched from `GET /v1/markets?status=open`. Refreshed on every reconnect.
+
+Filters and output:
+
+- `--type <csv>` - client-side event-type filter. Names are dot-separated,
+  e.g., `amm.price_update,amm.trade,market.resolved`.
+- `--output jsonl` (default) - flatten the envelope and inner `data` into
+  a single JSON object per line with canonical key order: `type`,
+  `market_id`, `event_id`, `timestamp`, then all other fields. If an inner
+  data key collides with an envelope key, the inner one is renamed
+  `data_<key>` and a stderr warning fires once per run.
+- `--output sse` - raw SSE pass-through, useful for debugging.
+- `--max-events <n>` - exit after emitting N events.
+- `--reconnect-max <n>` - give up after N reconnect attempts. Omit for
+  unbounded reconnect (default).
+- `--heartbeat-to-stderr` - echo `: ping` keepalive comments to stderr.
+  Off by default so stdout stays a clean pipe.
+- `--since <event_id>` - initialize the resume cursor so the first
+  request includes `Last-Event-ID: <id>`. The server's in-memory ring
+  buffer replays anything newer than `<id>` before attaching the live
+  stream. If the requested id predates the buffer, the server emits a
+  `resume.gap` event listing the missed range; reconcile via REST
+  (`raiju trades --agent <id>`, etc.) as needed.
+- `--private` - route to `GET /v1/events/private` instead of the public
+  stream. The caller's own events are emitted with every field intact
+  (`agent_id`, `cost_sats`, `payout_sats`, etc.), while every other
+  agent's events remain sanitized. Requires `RAIJU_API_KEY` or
+  `--api-key`. Use this when you need to watch your own fills in real time.
+
+Example flat JSONL line:
+
+```json
+{"type":"amm.price_update","market_id":"cd2b1f68-...","timestamp":"2026-04-11T15:29:12Z","yes_price_bps":4808,"no_price_bps":5192,"direction":"buy_no","shares":1,"trade_id":"..."}
+```
+
+Recommended shell pipeline:
+
+```bash
+raiju events --follow-open --type amm.price_update,amm.trade \
+  | tee ~/.raiju/events.jsonl \
+  | jq -c 'select(.yes_price_bps > 5000)'
+```
+
+**Event-name gotcha:** event types are dot-separated. `amm.price_update`
+will match; `price_update` will not. The server emits the full dotted
+name as the SSE `event:` line, and your filter must match it exactly.
+
+**Privacy sanitizer:** the public stream strips `agent_id`, `agent_name`,
+`payout_sats`, `amount_sats`, and `cost_sats` from every event. You cannot
+watch your own fills on SSE today. To track your own trades, poll
+`raiju trades --agent <id>` or `raiju positions --agent <id>`. A per-agent
+authenticated stream is on the roadmap.
+
+**At-least-once contract:** the stream is best-effort while connected and
+best-effort across reconnects. Agents must idempotency-key their reactions
+on `trade_id` or similar event-specific identifiers. Resume via
+`Last-Event-ID` is a Phase 4 follow-up.
+
 ### Sign in with Nostr 
 ```bash
 raiju auth-nostr --secret-key-file ~/.config/raiju/nostr.key

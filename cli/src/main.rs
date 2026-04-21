@@ -329,6 +329,66 @@ enum Commands {
     /// Unbind the Nostr public key from your agent (ADR-028)
     NostrUnbind,
 
+    /// Poll `/v1/events/recent` for server-buffered events (MCP parity).
+    ///
+    /// Thin wrapper over the REST endpoint. For live streaming use
+    /// `raiju events` instead.
+    EventsRecent {
+        /// Return events with event_id strictly greater than this.
+        #[arg(long)]
+        since: Option<u64>,
+        /// Comma-separated market UUIDs to filter.
+        #[arg(long)]
+        markets: Option<String>,
+        /// Comma-separated event types to filter.
+        #[arg(long)]
+        types: Option<String>,
+        /// Max events to return (default 100, max 1000).
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+
+    /// Stream real-time SSE events with JSONL-friendly output.
+    ///
+    /// Examples:
+    ///   raiju events --markets <uuid1,uuid2>
+    ///   raiju events --follow-open --type amm.price_update,amm.trade
+    ///   raiju events --markets-from-file ./my-markets.txt --output jsonl | jq .
+    Events {
+        /// Comma-separated market UUIDs to subscribe to (server-side filter).
+        #[arg(long)]
+        markets: Option<String>,
+        /// File containing one market UUID per line (ignores blank lines and `#` comments).
+        #[arg(long)]
+        markets_from_file: Option<PathBuf>,
+        /// Subscribe to the firehose and auto-track currently-open markets via lifecycle events.
+        #[arg(long)]
+        follow_open: bool,
+        /// Comma-separated event types to keep (client-side filter).
+        #[arg(long)]
+        r#type: Option<String>,
+        /// Output format: `jsonl` (default, flat envelope + data merged) or `sse` (raw passthrough).
+        #[arg(long, default_value = "jsonl")]
+        output: String,
+        /// Exit after emitting this many events.
+        #[arg(long)]
+        max_events: Option<usize>,
+        /// Give up after this many reconnect attempts.
+        #[arg(long)]
+        reconnect_max: Option<usize>,
+        /// Echo `: ping` keepalive comments to stderr.
+        #[arg(long)]
+        heartbeat_to_stderr: bool,
+        /// Initialize the resume cursor so the first connection sends Last-Event-ID: <id> and the server replays newer events from its ring buffer.
+        #[arg(long)]
+        since: Option<u64>,
+        /// Subscribe via `/v1/events/private` so the caller's own events
+        /// are emitted with all fields (including agent_id, cost_sats,
+        /// payout_sats) intact. Requires a configured API key.
+        #[arg(long)]
+        private: bool,
+    },
+
     /// Deactivate an agent you operate (soft-delete, reversible)
     DeactivateAgent {
         #[arg(long)]
@@ -758,6 +818,45 @@ fn main() -> Result<()> {
                     );
                 }
             }
+        }
+
+        Commands::EventsRecent { since, markets, types, limit } => {
+            let resp =
+                client.events_recent(since, markets.as_deref(), types.as_deref(), limit)?;
+            pretty(&resp)?;
+        }
+
+        Commands::Events {
+            markets,
+            markets_from_file,
+            follow_open,
+            r#type,
+            output,
+            max_events,
+            reconnect_max,
+            heartbeat_to_stderr,
+            since,
+            private,
+        } => {
+            use raiju::events::{EventsArgs, OutputFormat, run as run_events};
+            if private && cli.api_key.is_none() && std::env::var("RAIJU_API_KEY").is_err() {
+                anyhow::bail!(
+                    "--private requires an API key. Set RAIJU_API_KEY or pass --api-key."
+                );
+            }
+            let args = EventsArgs {
+                markets,
+                markets_from_file,
+                follow_open,
+                types: r#type,
+                output: OutputFormat::parse(&output)?,
+                max_events,
+                reconnect_max,
+                heartbeat_to_stderr,
+                since,
+                private,
+            };
+            run_events(&client, args)?;
         }
 
         Commands::AuthNostr { secret_key_file } => {

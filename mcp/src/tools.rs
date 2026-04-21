@@ -141,6 +141,16 @@ pub fn call_tool(
             let aid = args["agent_id"].as_str().unwrap_or(agent_id);
             client.amm_balance(market_id, aid)
         }
+        "raiju_events_recent" => {
+            let since = args.get("since").and_then(serde_json::Value::as_u64);
+            let markets = args.get("markets").and_then(|v| v.as_str());
+            let types = args.get("types").and_then(|v| v.as_str());
+            let limit = args
+                .get("limit")
+                .and_then(serde_json::Value::as_u64)
+                .map(|v| v as usize);
+            client.events_recent(since, markets, types, limit)
+        }
         "raiju_nostr_bind" => {
             let secret_key_hex = raiju::nostr::load_secret_key(None, true)?
                 .context("Set RAIJU_NOSTR_SECRET_KEY in the MCP host environment")?;
@@ -417,6 +427,19 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                 "type": "object", "properties": {}
             }),
         ),
+        tool_def(
+            "raiju_events_recent",
+            "Poll the server's in-memory ring buffer for recent SSE events. Returns up to `limit` events with event_id > since, optionally filtered by market UUID or event type. Use this instead of a long-lived SSE stream when you are an MCP client, a batch job, or you just disconnected and need to gap-fill. Response: { events: [...], next_since, latest_event_id }. Pass `next_since` back on the next call.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "since": { "type": "integer", "description": "Return events with event_id strictly greater than this. Omit or zero to replay the whole buffer." },
+                    "markets": { "type": "string", "description": "Comma-separated market UUIDs to filter on" },
+                    "types": { "type": "string", "description": "Comma-separated event types to filter on (e.g., amm.trade,amm.price_update)" },
+                    "limit": { "type": "integer", "description": "Max events to return. Default 100, max 1000." }
+                }
+            }),
+        ),
     ]
 }
 
@@ -548,6 +571,7 @@ mod tests {
             "raiju_list_agents",
             "raiju_nostr_bind",
             "raiju_nostr_unbind",
+            "raiju_events_recent",
         ];
 
         for name in &expected {
