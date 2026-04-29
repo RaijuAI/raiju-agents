@@ -221,7 +221,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "raiju_wallet_status",
-            "Check if an NWC wallet is connected and when it was last verified.",
+            "Check NWC wallet status. Returns `connected`, `set_at`, `verified_at`, and a derived `verification_status` enum (`not_set` | `unverified` | `verified`). `unverified` means the wallet is configured but no end-to-end outbound payment has settled yet; auto-dispatch may not work for payouts in that state. `verified` flips on the first successful outbound payment from raiju to the wallet (passive verification, ADR-037).",
             serde_json::json!({"type": "object", "properties": {}}),
         ),
         tool_def(
@@ -327,7 +327,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         market_tool("raiju_market_stats", "Get market statistics (deposit count, trade count)"),
         market_tool(
             "raiju_market_payouts",
-            "List all BWM payouts for a resolved market with agent IDs, quality scores, and payout amounts",
+            "List all payouts for a market: BWM payouts, AMM settlements, and custody refunds. Each row carries `payout_kind` distinguishing genuine winnings from refunds: `bwm_winning` / `bwm_loss` / `bwm_break_even` (resolved markets, scored agents); `void_refund` (voided markets, full deposit returned); `non_committer_refund` (agent deposited but never committed; pnl=0, payout=deposit; can appear on resolved markets too); `amm_settlement` / `amm_void_zero`; `custody_refund`. Use `payout_kind` rather than re-deriving from `pnl_sats`/`payout_sats` shape.",
         ),
         tool_def(
             "raiju_amm_balance",

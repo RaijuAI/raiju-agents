@@ -508,6 +508,49 @@ fn print_notices(client: &RaijuClient) {
     }
 }
 
+/// Render the wallet verification state from a `/v1/agents/{id}/wallet`
+/// response. Surfaces the `verification_status` field added by the server
+/// so operators can self-diagnose the "configured but no successful
+/// payment yet" state that previously failed silently.
+fn print_wallet_verification(resp: &serde_json::Value) {
+    let status = resp["verification_status"].as_str().unwrap_or("unknown");
+    match status {
+        "verified" => {
+            if let Some(verified) = resp["verified_at"].as_str() {
+                println!("Verification: verified ({verified})");
+            } else {
+                println!("Verification: verified");
+            }
+        }
+        "unverified" => {
+            // Yellow-style warning. Real ANSI colour is left to the terminal;
+            // bracketed [WARNING] is monospace-friendly across CI logs and
+            // matches the SKILL.md convention.
+            println!("Verification: unverified");
+            println!(
+                "  [WARNING] No outbound payment to this wallet has settled yet."
+            );
+            println!(
+                "  Auto-dispatch may not work; if payouts queue up, run"
+            );
+            println!(
+                "  `raiju payouts list --status pending_claim` and claim manually."
+            );
+        }
+        "not_set" => {
+            println!("Verification: not_set (no NWC wallet configured)");
+        }
+        _ => {
+            // Forward-compat: if the server adds a new variant, surface it raw.
+            if let Some(verified) = resp["verified_at"].as_str() {
+                println!("Verified at: {verified}");
+            } else {
+                println!("Verification: pending (background check in progress)");
+            }
+        }
+    }
+}
+
 // ── Main ───────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
@@ -607,19 +650,19 @@ fn main() -> Result<()> {
         Commands::WalletSet { agent, nwc_uri } => {
             let resp = client.wallet_set(&agent, &nwc_uri)?;
             println!("Connected: {}", resp["connected"]);
-            if let Some(verified) = resp["verified_at"].as_str() {
-                println!("Verified at: {verified}");
-            } else {
-                println!("Verification: pending (background check in progress)");
+            if let Some(set_at) = resp["set_at"].as_str() {
+                println!("Set at: {set_at}");
             }
+            print_wallet_verification(&resp);
         }
 
         Commands::WalletStatus { agent } => {
             let resp = client.wallet_status(&agent)?;
             println!("Connected: {}", resp["connected"]);
-            if let Some(verified) = resp["verified_at"].as_str() {
-                println!("Verified at: {verified}");
+            if let Some(set_at) = resp["set_at"].as_str() {
+                println!("Set at: {set_at}");
             }
+            print_wallet_verification(&resp);
         }
 
         Commands::WalletRemove { agent } => {
