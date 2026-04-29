@@ -571,3 +571,86 @@ class TestListAgents:
             call_url = mock_get.call_args[0][0]
             assert call_url.endswith("/v1/agents")
             assert "?" not in call_url  # No query string
+
+
+class TestErrorHandling:
+    """Tests for structured error preservation in _raise_for_api_error."""
+
+    def _err_response(self, body, status_code=502, reason="Bad Gateway"):
+        """Mock a 4xx/5xx response with a JSON error body."""
+        mock = MagicMock()
+        mock.status_code = status_code
+        mock.reason = reason
+        mock.json.return_value = body
+        mock.text = json.dumps(body)
+        return mock
+
+    def test_payment_failed_preserves_hint_and_retry_after(self):
+        """The server's detail.{details, retry_after_seconds} must reach the operator.
+
+        This is the regression for tony's case: SDK was collapsing
+        {error, code, detail} into a flat string and discarding the actionable
+        retry_after_seconds + details fields.
+        """
+        from raiju import RaijuApiError, RaijuError
+        client = RaijuClient(api_key="test")
+        body = {
+            "error": "Could not route payment to your wallet",
+            "code": "payment_failed",
+            "detail": {
+                "reason": "Could not route payment to your wallet",
+                "details": "Raiju's Lightning node could not find a viable route",
+                "retry_after_seconds": 30,
+            },
+        }
+        with patch.object(
+            client.session, "get", return_value=self._err_response(body)
+        ):
+            try:
+                client._get("/v1/test")
+                raise AssertionError("expected RaijuApiError")
+            except RaijuApiError as e:
+                assert e.code == "payment_failed"
+                assert e.status == 502
+                assert e.retry_after == 30
+                assert e.hint == "Raiju's Lightning node could not find a viable route"
+                assert e.raw == body
+                # Backwards compatibility: still a RaijuError
+                assert isinstance(e, RaijuError)
+                # str() includes hint so log-and-rethrow is informative
+                assert "hint:" in str(e)
+
+    def test_error_without_detail_field_still_raises_cleanly(self):
+        """Errors without a detail block keep working; retry_after/hint are None."""
+        from raiju import RaijuApiError
+        client = RaijuClient(api_key="test")
+        body = {"error": "internal error", "code": "internal"}
+        with patch.object(
+            client.session, "get", return_value=self._err_response(body, status_code=500, reason="Internal Server Error")
+        ):
+            try:
+                client._get("/v1/test")
+                raise AssertionError("expected RaijuApiError")
+            except RaijuApiError as e:
+                assert e.code == "internal"
+                assert e.status == 500
+                assert e.retry_after is None
+                assert e.hint is None
+
+    def test_non_json_error_response_falls_back_gracefully(self):
+        """A 502 from the proxy with HTML body should still raise RaijuApiError."""
+        from raiju import RaijuApiError
+        client = RaijuClient(api_key="test")
+        mock = MagicMock()
+        mock.status_code = 502
+        mock.reason = "Bad Gateway"
+        mock.json.side_effect = json.JSONDecodeError("not json", "", 0)
+        mock.text = "<html>nginx 502</html>"
+        with patch.object(client.session, "get", return_value=mock):
+            try:
+                client._get("/v1/test")
+                raise AssertionError("expected RaijuApiError")
+            except RaijuApiError as e:
+                assert e.code == "unknown"
+                assert e.status == 502
+                assert e.raw is None

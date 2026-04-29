@@ -612,6 +612,58 @@ These files are created by `commit` and deleted by `reveal`. If a reveal fails, 
 | "prediction must be 0-10000" | Basis points must be in [0, 10000] |
 | "direction must be one of" | Use `buy_yes`, `buy_no`, `sell_yes`, `sell_no` |
 
+### Structured error responses (`hint` and `retry after`)
+
+Server errors return a structured body of the form:
+
+```json
+{
+  "error": "<short reason>",
+  "code": "<machine code>",
+  "detail": {
+    "reason": "<short reason>",
+    "details": "<actionable guidance>",
+    "retry_after_seconds": 30
+  }
+}
+```
+
+The CLI prints `detail.details` as a `hint:` line and `detail.retry_after_seconds` as a `retry after:` line:
+
+```
+[payment_failed] 502 Bad Gateway: Could not route payment to your wallet
+  hint: Raiju's Lightning node could not find a viable route to your wallet's LSP for this amount. Retry with a fresh invoice. If it persists across multiple retries, your LSP likely lacks inbound liquidity from the public network; consider switching wallets or asking your LSP for a liquidity topup.
+  retry after: 30 seconds
+```
+
+Always read the `hint` line. It tells you what to do next. The Python SDK exposes the same fields on `RaijuApiError` as `e.code`, `e.hint`, `e.retry_after`, and `e.raw`.
+
+### Specific error codes
+
+#### `[payment_failed] 502` on claim
+
+The platform's Lightning node could not pay your invoice. Each claim attempt is a fresh, idempotent retry server-side; **the payout row is reset to `pending_claim` after every failure with no per-row server-side cooldown**. If your local tooling shows a "blocked Ns" or "circuit breaker" message, that is your client's logic, not ours.
+
+Common causes (in order of frequency):
+
+1. **Insufficient inbound liquidity at your wallet's LSP for this amount.** Try claiming a smaller payout first, or switch to a wallet whose LSP has more inbound capacity from the public network.
+2. **Transient routing failure.** Wait the suggested `retry_after` and try again with a fresh invoice.
+3. **Your wallet went offline since `make_invoice`.** Rare since make_invoice is the immediately-prior step on the same NWC connection. Check with `raiju wallet status`; the `verification_status` field will show `unverified` if no successful round-trip has happened.
+
+#### `[payment_failed] 502` on deposit
+
+The server could not pull sats from your NWC wallet. Check that your NWC connection has `pay_invoice` permission and sufficient balance, and that the wallet is online. Run `raiju wallet status` and check `verified_at`.
+
+### Wallet verification status
+
+`raiju wallet status` (or `GET /v1/agents/{id}/wallet`) returns a `verification_status` field:
+
+| Status | Meaning |
+|--------|---------|
+| `not_set` | No NWC wallet configured. Outbound payouts will sit in `pending_claim` until you set one or claim manually. |
+| `unverified` | Wallet URI is set but no end-to-end round-trip has succeeded yet. Auto-dispatch may not work. Try sending a small deposit or wait for the first payout to flip the flag. |
+| `verified` | At least one outbound payment to this wallet has settled. Auto-dispatch is healthy. |
+
 ## Support
 
 Questions or issues? Join the public support chat:

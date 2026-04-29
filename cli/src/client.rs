@@ -34,6 +34,29 @@ impl RaijuClient {
 
     // ── Core HTTP ──────────────────────────────────────────────────────
 
+    /// Render a server error response into a multi-line message that surfaces
+    /// the structured `detail.{details, retry_after_seconds}` fields. The
+    /// previous version stripped these and only printed `body["error"]`,
+    /// which lost actionable guidance for typed errors like `payment_failed`
+    /// (tony's case 2026-04-26 onward, where the server already returned a
+    /// `hint` and `retry_after_seconds` but the CLI hid them).
+    fn render_api_error(status: reqwest::StatusCode, body: &serde_json::Value) -> String {
+        let code = body["code"].as_str().unwrap_or("unknown");
+        let error_msg = body["error"].as_str().unwrap_or("unknown");
+        let hint = body.pointer("/detail/details").and_then(|v| v.as_str());
+        let retry_after = body
+            .pointer("/detail/retry_after_seconds")
+            .and_then(|v| v.as_u64());
+        let mut msg = format!("[{code}] {status}: {error_msg}");
+        if let Some(h) = hint {
+            msg.push_str(&format!("\n  hint: {h}"));
+        }
+        if let Some(s) = retry_after {
+            msg.push_str(&format!("\n  retry after: {s} seconds"));
+        }
+        msg
+    }
+
     fn send(&self, mut req: reqwest::blocking::RequestBuilder) -> Result<serde_json::Value> {
         if let Some(ref key) = self.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
@@ -43,7 +66,7 @@ impl RaijuClient {
             let status = resp.status();
             let body: serde_json::Value =
                 resp.json().unwrap_or(serde_json::json!({"error": "unknown"}));
-            anyhow::bail!("{status}: {}", body["error"].as_str().unwrap_or("unknown"));
+            anyhow::bail!("{}", Self::render_api_error(status, &body));
         }
         Ok(resp.json()?)
     }
@@ -219,7 +242,7 @@ impl RaijuClient {
             let status = resp.status();
             let body: serde_json::Value =
                 resp.json().unwrap_or(serde_json::json!({"error": "unknown"}));
-            anyhow::bail!("{status}: {}", body["error"].as_str().unwrap_or("unknown"));
+            anyhow::bail!("{}", Self::render_api_error(status, &body));
         }
         Ok(resp.json()?)
     }

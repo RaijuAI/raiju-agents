@@ -25,6 +25,58 @@ class RaijuError(Exception):
     pass
 
 
+class RaijuApiError(RaijuError):
+    """Structured API error with server-provided diagnostic detail.
+
+    Subclass of RaijuError so existing ``except RaijuError`` clauses keep
+    working. New code can inspect:
+
+    - ``code``: machine-readable error code (e.g. ``"payment_failed"``).
+    - ``status``: HTTP status code (e.g. 502).
+    - ``retry_after``: seconds the server suggests waiting before retry,
+      from ``detail.retry_after_seconds``. ``None`` if not provided.
+    - ``hint``: human-readable actionable guidance from ``detail.details``.
+      ``None`` if not provided.
+    - ``raw``: the full parsed JSON body for advanced debugging.
+
+    Example:
+
+        try:
+            client.claim_payout(payout_id, bolt11)
+        except RaijuApiError as e:
+            if e.code == "payment_failed" and e.retry_after:
+                time.sleep(e.retry_after)
+                # retry...
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "unknown",
+        status: int = 0,
+        retry_after: int | None = None,
+        hint: str | None = None,
+        raw: dict | None = None,
+    ):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.status = status
+        self.retry_after = retry_after
+        self.hint = hint
+        self.raw = raw
+
+    def __str__(self) -> str:
+        # Backwards-compatible string form so existing log-and-re-raise
+        # paths continue to print a useful message. The hint, when present,
+        # is the most actionable piece of information the operator gets.
+        base = f"[{self.code}] {self.status} {self.message}"
+        if self.hint:
+            return f"{base}\n  hint: {self.hint}"
+        return base
+
+
 class RaijuClient:
     """Client for the Raiju prediction arena API."""
 
@@ -60,16 +112,60 @@ class RaijuClient:
         return f"?{'&'.join(parts)}" if parts else ""
 
     def _raise_for_api_error(self, resp: requests.Response) -> None:
-        """Check for HTTP errors and raise RaijuError with the server's error message."""
-        if resp.status_code >= 400:
-            # Try to extract structured error from JSON body
-            try:
-                body = resp.json()
-                error_msg = body.get("error", resp.text[:200])
-                code = body.get("code", "unknown")
-                raise RaijuError(f"[{code}] {resp.status_code} {resp.reason}: {error_msg}")
-            except json.JSONDecodeError:
-                raise RaijuError(f"{resp.status_code} {resp.reason}: {resp.text[:200]}")
+        """Check for HTTP errors and raise RaijuApiError preserving server detail.
+
+        The server returns structured error bodies of the form:
+
+            {
+              "error": "<short reason>",
+              "code": "<machine code>",
+              "detail": {
+                "reason": "<short reason>",
+                "details": "<actionable guidance>",
+                "retry_after_seconds": 30
+              }
+            }
+
+        We promote ``detail.details`` to ``hint`` and ``detail.retry_after_seconds``
+        to ``retry_after`` so operators can act on the structured guidance
+        instead of parsing the message string.
+        """
+        if resp.status_code < 400:
+            return
+
+        try:
+            body = resp.json()
+        except (json.JSONDecodeError, ValueError):
+            # Server returned non-JSON (proxy error page, network blip)
+            raise RaijuApiError(
+                f"{resp.reason}: {resp.text[:200]}",
+                code="unknown",
+                status=resp.status_code,
+                raw=None,
+            ) from None
+
+        if not isinstance(body, dict):
+            raise RaijuApiError(
+                f"{resp.reason}: {resp.text[:200]}",
+                code="unknown",
+                status=resp.status_code,
+                raw=None,
+            )
+
+        error_msg = body.get("error", resp.text[:200])
+        code = body.get("code", "unknown")
+        detail = body.get("detail") or {}
+        hint = detail.get("details") if isinstance(detail, dict) else None
+        retry_after = detail.get("retry_after_seconds") if isinstance(detail, dict) else None
+
+        raise RaijuApiError(
+            f"{resp.reason}: {error_msg}",
+            code=code,
+            status=resp.status_code,
+            retry_after=retry_after if isinstance(retry_after, int) else None,
+            hint=hint if isinstance(hint, str) else None,
+            raw=body,
+        )
 
     def _check_notices(self) -> None:
         """Fetch and display platform notices once per client session."""
