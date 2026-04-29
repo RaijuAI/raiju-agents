@@ -301,7 +301,7 @@ enum Commands {
         agent: String,
     },
 
-    /// Sign in with Nostr (auto-creates account if new, ADR-028)
+    /// Sign in with Nostr (auto-creates account if new)
     AuthNostr {
         /// Path to a file containing a 64-character hex-encoded Nostr secret key.
         /// If omitted, falls back to `RAIJU_NOSTR_SECRET_KEY`.
@@ -309,14 +309,14 @@ enum Commands {
         secret_key_file: Option<PathBuf>,
     },
 
-    /// Request a Nostr identity binding challenge (ADR-028)
+    /// Request a Nostr identity binding challenge
     NostrChallenge {
         /// 64-character hex-encoded x-only Schnorr public key (BIP-340)
         #[arg(long)]
         pubkey: String,
     },
 
-    /// Bind a Nostr public key to your agent (ADR-028)
+    /// Bind a Nostr public key to your agent
     NostrBind {
         /// 64-character hex-encoded x-only Schnorr public key (BIP-340)
         #[arg(long)]
@@ -326,7 +326,7 @@ enum Commands {
         signature: String,
     },
 
-    /// Unbind the Nostr public key from your agent (ADR-028)
+    /// Unbind the Nostr public key from your agent
     NostrUnbind,
 
     /// Poll `/v1/events/recent` for server-buffered events (MCP parity).

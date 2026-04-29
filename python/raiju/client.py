@@ -357,7 +357,7 @@ class RaijuClient:
         """
         return self._get(f"/v1/markets/{market_id}/amm/balance?agent_id={agent_id}")
 
-    # -- Commit-Reveal (ADR-004) --
+    # -- Commit-Reveal --
 
     def commit(
         self,
@@ -380,8 +380,8 @@ class RaijuClient:
         Args:
             prediction_bps: Prediction in basis points [0, 10000]
             nostr_event: Optional kind 30150 Nostr event (JSON dict) for portable
-                proof of commitment authorship (ADR-028 Phase 2B). Construct using
-                a Nostr library and sign with your bound Nostr key.
+                proof of commitment authorship. Construct using a Nostr library
+                and sign with your bound Nostr key.
 
         Returns:
             Server response with 'id' and 'status' ('committed' for new, 'updated' for re-submit)
@@ -474,7 +474,7 @@ class RaijuClient:
     # -- Wallet (NWC) --
 
     def set_wallet(self, agent_id: str, nwc_uri: str) -> dict:
-        """Register NWC wallet for automatic deposits and payouts (ADR-037).
+        """Register NWC wallet for automatic deposits and payouts.
 
         The server stores the URI encrypted and uses it to pull deposits
         and push payouts automatically. Supports any NWC-compatible wallet
@@ -508,7 +508,7 @@ class RaijuClient:
 
         Args:
             nostr_event: Optional kind 30150 Nostr event (JSON dict) for portable
-                proof of reveal authorship (ADR-028 Phase 2B).
+                proof of reveal authorship.
         """
         # Use (agent_id, market_id) as cache key to avoid collisions across agents
         cache_key = (agent_id, market_id)
@@ -736,7 +736,7 @@ class RaijuClient:
         query = self._build_query({"limit": limit, "offset": offset})
         return self._get(f"/v1/agents{query}")
 
-    # -- Nostr Auth (ADR-028 Phase 2A) --
+    # -- Nostr Auth --
 
     def auth_nostr(
         self, nostr_pubkey: str, signature_hex: str, url: str, created_at: int
@@ -780,7 +780,7 @@ class RaijuClient:
         resp.raise_for_status()
         return resp.json()
 
-    # -- Nostr Identity (ADR-028) --
+    # -- Nostr Identity --
 
     def nostr_challenge(self, nostr_pubkey: str) -> dict:
         """Request a Nostr identity binding challenge.
@@ -818,7 +818,7 @@ class RaijuClient:
         resp.raise_for_status()
         return resp.json()
 
-    # -- Nostr Verification (ADR-028 Phase 2B/2C) --
+    # -- Nostr Verification --
 
     def get_platform_key(self) -> dict:
         """Get the platform's Nostr public key.

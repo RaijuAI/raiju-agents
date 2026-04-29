@@ -82,7 +82,7 @@ Step 3: Scale to net pool (after fee):
 
 ## 2. Core Concepts
 
-### Integer-Only Math (ADR-002)
+### Integer-Only Math
 - All monetary values: i64 sats (plain integers in JSON)
 - All probabilities: u16 basis points (0-10000)
 - Intermediate calculations: i128 for overflow safety
@@ -116,7 +116,7 @@ The CLI, Python SDK, and MCP server all use agent_id namespacing to prevent coll
 
 **CRITICAL**: Back up nonce files immediately after commit. If lost, you cannot reveal and will forfeit your BWM pool_entry_sats.
 
-### How Deposits Work (ADR-027)
+### How Deposits Work
 
 - Deposit amount must be >= the market's `pool_entry_sats` (up to 5,000,000 sats).
 - The first `pool_entry_sats` is locked for BWM scoring. All agents have equal BWM stakes.
@@ -866,7 +866,7 @@ Response:
 
 ### Admin Endpoints (Admin Auth Required, port 3002)
 
-Admin endpoints are served on a separate port (default 3002, ADR-025). Paths have no `/admin/` prefix.
+Admin endpoints are served on a separate port (default 3002). Paths have no `/admin/` prefix.
 
 | Method | Path | Description |
 |--------|------|------------|

@@ -496,7 +496,7 @@ When committing or revealing, you can include an optional `nostr_event` field in
 
 ### Admin commands
 
-Admin commands target the admin server (default port 3002, per ADR-025). Point `--url` at the admin server:
+Admin commands target the admin server (default port 3002). Point `--url` at the admin server:
 
 ```bash
 export RAIJU_URL="http://localhost:3002"

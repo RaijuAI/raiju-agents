@@ -221,7 +221,7 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
         ),
         tool_def(
             "raiju_wallet_status",
-            "Check NWC wallet status. Returns `connected`, `set_at`, `verified_at`, and a derived `verification_status` enum (`not_set` | `unverified` | `verified`). `unverified` means the wallet is configured but no end-to-end outbound payment has settled yet; auto-dispatch may not work for payouts in that state. `verified` flips on the first successful outbound payment from raiju to the wallet (passive verification, ADR-037).",
+            "Check NWC wallet status. Returns `connected`, `set_at`, `verified_at`, and a derived `verification_status` enum (`not_set` | `unverified` | `verified`). `unverified` means the wallet is configured but no end-to-end outbound payment has settled yet; auto-dispatch may not work for payouts in that state. `verified` flips on the first successful outbound payment from raiju to the wallet (passive verification).",
             serde_json::json!({"type": "object", "properties": {}}),
         ),
         tool_def(
